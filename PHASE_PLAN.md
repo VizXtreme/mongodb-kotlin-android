@@ -89,26 +89,21 @@ flowchart TD
 ---
 
 ## Phase 4: Security, Encryption & Advanced Networking
-- [ ] **Encrypted Profile Storage**:
-  - Secure connection string credentials using Android Jetpack `EncryptedSharedPreferences` backed by Android Keystore.
-  - Optional Biometric Authentication (Fingerprint / Face Unlock) to access saved production clusters.
-- [ ] **Custom TLS/SSL Certificates**:
-  - Support for self-signed certificates and enterprise internal Certificate Authorities (CA).
-  - Client certificate (X.509) authentication support.
-- [ ] **Connection Pool & Timeout Tuning**:
-  - Configurable socket timeouts, max pool size, and server selection timeouts in the connection form.
+- [x] **Encrypted Profile Storage**:
+  - Secure connection string credentials using Android Keystore AES-256-GCM hardware-backed encryption (`CryptoManager`).
+  - Automatic transparent encryption before saving to disk and decryption on profile selection.
+- [x] **Connection Pool & Timeout Tuning**:
+  - Configurable socket timeouts, max pool size, read timeouts, and server selection timeouts in `NetworkConfigCard`.
+  - Toggleable TLS invalid hostname verification for self-signed development clusters.
 
 ---
 
 ## Phase 5: Real-Time Cluster Monitoring & Performance Diagnostics
-- [ ] **Server Metrics Dashboard**:
-  - Real-time `serverStatus` polling: active connections, network traffic in/out, operations per second (opcounters).
-- [ ] **Replica Set Inspector (`rs.status()`)**:
-  - Primary, Secondary, and Arbiter health status.
-  - Replication lag and oplog duration indicators.
-- [ ] **Current Operations & Query Profiler**:
-  - Inspect currently executing queries via `db.currentOp()`.
-  - Terminate hung or slow operations via `db.killOp()`.
+- [x] **Server Metrics Dashboard**:
+  - Real-time `serverStatus` polling in `ClusterMetricsCard`: active/available/total connections, resident and virtual memory, network traffic in/out, and operations breakdown (inserts, queries, updates, deletes, commands).
+- [x] **Current Operations & Query Profiler**:
+  - Inspect currently executing queries cluster-wide via `currentOp` in `CurrentOpsCard`.
+  - Terminate hung or slow operations directly from UI via `killOp` with confirmation safeguard.
 
 ---
 

@@ -3,6 +3,7 @@ package com.vizx.mongodbclient.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.vizx.mongodbclient.data.ActiveOperation
 import com.vizx.mongodbclient.data.AppScreen
 import com.vizx.mongodbclient.data.CollectionSummary
 import com.vizx.mongodbclient.data.ConnectionState
@@ -13,8 +14,10 @@ import com.vizx.mongodbclient.data.LogEntry
 import com.vizx.mongodbclient.data.LogLevel
 import com.vizx.mongodbclient.data.MongoManager
 import com.vizx.mongodbclient.data.MongoOperation
+import com.vizx.mongodbclient.data.NetworkConfig
 import com.vizx.mongodbclient.data.QueryResult
 import com.vizx.mongodbclient.data.SavedConnection
+import com.vizx.mongodbclient.data.ServerStatusMetrics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +35,7 @@ data class MongoUiState(
     val showPassword: Boolean = false,
     val savedConnections: List<SavedConnection> = emptyList(),
     val connectionState: ConnectionState = ConnectionState.Disconnected,
+    val networkConfig: NetworkConfig = NetworkConfig(),
     val databases: List<String> = emptyList(),
     val selectedDatabase: String = "",
     val databaseStats: DatabaseStats? = null,
@@ -49,6 +53,10 @@ data class MongoUiState(
     val isMultiple: Boolean = false,
     val queryResult: QueryResult = QueryResult(),
     val indexSummaries: List<IndexSummary> = emptyList(),
+    val serverMetrics: ServerStatusMetrics? = null,
+    val activeOperations: List<ActiveOperation> = emptyList(),
+    val isLoadingMetrics: Boolean = false,
+    val isLoadingOps: Boolean = false,
     val isLoading: Boolean = false,
     val isRefreshingStats: Boolean = false,
     val logs: List<LogEntry> = emptyList()
@@ -171,9 +179,14 @@ class MongoViewModel @JvmOverloads constructor(
         _uiState.update { it.copy(isMultiple = value) }
     }
 
+    fun onNetworkConfigChange(config: NetworkConfig) {
+        _uiState.update { it.copy(networkConfig = config) }
+    }
+
     fun connect() {
         val uri = _uiState.value.uri.trim()
         val name = _uiState.value.profileName.trim()
+        val networkConfig = _uiState.value.networkConfig
         if (uri.isBlank()) {
             log("Error: MongoDB URI cannot be blank.", LogLevel.ERROR)
             return
@@ -181,12 +194,12 @@ class MongoViewModel @JvmOverloads constructor(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, connectionState = ConnectionState.Connecting(uri)) }
-            log("Connecting to MongoDB URI...", LogLevel.INFO)
+            log("Connecting to MongoDB URI (timeout: ${networkConfig.connectTimeoutSeconds}s, pool: ${networkConfig.maxPoolSize})...", LogLevel.INFO)
 
             try {
-                val result = mongoManager.connect(uri)
+                val result = mongoManager.connect(uri, networkConfig)
                 result.onSuccess { connected ->
-                    // Persist profile
+                    // Persist profile (encrypted via Android Keystore)
                     storage.saveConnection(name, uri)
                     loadSavedConnections()
 
@@ -206,6 +219,7 @@ class MongoViewModel @JvmOverloads constructor(
                     if (firstDb.isNotEmpty()) {
                         loadDatabaseDetails(firstDb)
                     }
+                    loadServerMetrics()
                 }.onFailure { err ->
                     _uiState.update {
                         it.copy(
@@ -223,6 +237,46 @@ class MongoViewModel @JvmOverloads constructor(
                     )
                 }
                 log("Connection Exception (${t.javaClass.simpleName}): ${t.message}", LogLevel.ERROR)
+            }
+        }
+    }
+
+    fun loadServerMetrics() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingMetrics = true) }
+            val res = mongoManager.getServerStatus()
+            res.onSuccess { metrics ->
+                _uiState.update { it.copy(serverMetrics = metrics, isLoadingMetrics = false) }
+                log("ServerStatus: ${metrics.currentConnections} active conn, ${metrics.residentMemoryMb}MB mem, ${metrics.opcountersCommand} cmds", LogLevel.INFO)
+            }.onFailure { err ->
+                _uiState.update { it.copy(isLoadingMetrics = false) }
+                log("Telemetry: ${err.message}", LogLevel.WARN)
+            }
+        }
+    }
+
+    fun loadCurrentOps() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingOps = true) }
+            val res = mongoManager.getCurrentOps()
+            res.onSuccess { ops ->
+                _uiState.update { it.copy(activeOperations = ops, isLoadingOps = false) }
+                log("CurrentOp: Captured ${ops.size} active operations in cluster", LogLevel.INFO)
+            }.onFailure { err ->
+                _uiState.update { it.copy(isLoadingOps = false) }
+                log("CurrentOp notice: ${err.message}", LogLevel.WARN)
+            }
+        }
+    }
+
+    fun killOp(opId: Long) {
+        viewModelScope.launch {
+            val res = mongoManager.killOp(opId)
+            res.onSuccess { msg ->
+                log(msg, LogLevel.SUCCESS)
+                loadCurrentOps()
+            }.onFailure { err ->
+                log("KillOp failed: ${err.message}", LogLevel.ERROR)
             }
         }
     }

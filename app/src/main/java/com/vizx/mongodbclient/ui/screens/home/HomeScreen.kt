@@ -47,8 +47,9 @@ import com.vizx.mongodbclient.data.DatabaseStats
 import com.vizx.mongodbclient.data.MongoOperation
 import com.vizx.mongodbclient.ui.MongoUiState
 import com.vizx.mongodbclient.ui.MongoViewModel
-import com.vizx.mongodbclient.ui.components.ButtonVariant
+import com.vizx.mongodbclient.ui.components.ClusterMetricsCard
 import com.vizx.mongodbclient.ui.components.ConsoleLogViewer
+import com.vizx.mongodbclient.ui.components.CurrentOpsCard
 import com.vizx.mongodbclient.ui.components.DocumentResultCard
 import com.vizx.mongodbclient.ui.components.IndexManagerCard
 import com.vizx.mongodbclient.ui.components.MetricTile
@@ -92,6 +93,21 @@ fun HomeScreen(
                 val connected = uiState.connectionState as? ConnectionState.Connected
                 if (connected != null) {
                     ClusterTopologyCard(connected = connected)
+
+                    // Real-Time Server Status Telemetry
+                    ClusterMetricsCard(
+                        metrics = uiState.serverMetrics,
+                        isLoading = uiState.isLoadingMetrics,
+                        onRefresh = viewModel::loadServerMetrics
+                    )
+
+                    // Active Operations & Op Profiler
+                    CurrentOpsCard(
+                        operations = uiState.activeOperations,
+                        isLoading = uiState.isLoadingOps,
+                        onRefresh = viewModel::loadCurrentOps,
+                        onKillOp = viewModel::killOp
+                    )
                 }
 
                 // Database Selector & Detailed Stats Grid

@@ -13,6 +13,39 @@ sealed interface ConnectionState {
     data class Error(val message: String, val details: String? = null) : ConnectionState
 }
 
+data class NetworkConfig(
+    val connectTimeoutSeconds: Int = 15,
+    val readTimeoutSeconds: Int = 20,
+    val serverSelectionTimeoutSeconds: Int = 15,
+    val maxPoolSize: Int = 20,
+    val minPoolSize: Int = 0,
+    val allowInvalidHostnames: Boolean = false
+)
+
+data class ServerStatusMetrics(
+    val currentConnections: Long = 0,
+    val availableConnections: Long = 0,
+    val totalCreatedConnections: Long = 0,
+    val uptimeSeconds: Long = 0,
+    val residentMemoryMb: Long = 0,
+    val virtualMemoryMb: Long = 0,
+    val opcountersInsert: Long = 0,
+    val opcountersQuery: Long = 0,
+    val opcountersUpdate: Long = 0,
+    val opcountersDelete: Long = 0,
+    val opcountersCommand: Long = 0,
+    val networkBytesInFormatted: String = "0 B",
+    val networkBytesOutFormatted: String = "0 B"
+)
+
+data class ActiveOperation(
+    val opId: Long = 0,
+    val ns: String = "",
+    val op: String = "",
+    val secsRunning: Long = 0,
+    val queryJson: String = "{}"
+)
+
 data class ClusterInfo(
     val serverVersion: String,
     val clusterType: String,

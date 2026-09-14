@@ -23,17 +23,19 @@ class ConnectionStorage(context: Context) {
             val list = mutableListOf<SavedConnection>()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
+                val storedUri = obj.optString("uri", "")
+                val resolvedUri = com.vizx.mongodbclient.data.security.CryptoManager.decrypt(storedUri)
                 list.add(
                     SavedConnection(
                         id = obj.optString("id", UUID.randomUUID().toString()),
                         name = obj.optString("name", "Connection ${i + 1}"),
-                        uri = obj.optString("uri", ""),
+                        uri = resolvedUri,
                         lastConnected = obj.optLong("lastConnected", System.currentTimeMillis())
                     )
                 )
             }
             if (list.isEmpty()) defaultList() else list
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             defaultList()
         }
     }
@@ -74,7 +76,7 @@ class ConnectionStorage(context: Context) {
             val obj = JSONObject()
             obj.put("id", item.id)
             obj.put("name", item.name)
-            obj.put("uri", item.uri)
+            obj.put("uri", com.vizx.mongodbclient.data.security.CryptoManager.encrypt(item.uri))
             obj.put("lastConnected", item.lastConnected)
             array.put(obj)
         }

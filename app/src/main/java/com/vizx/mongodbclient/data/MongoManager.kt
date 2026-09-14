@@ -29,7 +29,10 @@ class MongoManager {
     val isConnected: Boolean
         get() = client != null
 
-    suspend fun connect(uri: String): Result<ConnectionState.Connected> = withContext(Dispatchers.IO) {
+    suspend fun connect(
+        uri: String,
+        networkConfig: NetworkConfig = NetworkConfig()
+    ): Result<ConnectionState.Connected> = withContext(Dispatchers.IO) {
         try {
             disconnect()
 
@@ -38,11 +41,20 @@ class MongoManager {
                 .applyConnectionString(connectionString)
                 .dnsClient(AndroidDnsClient())
                 .applyToSocketSettings { builder ->
-                    builder.connectTimeout(15, TimeUnit.SECONDS)
-                    builder.readTimeout(20, TimeUnit.SECONDS)
+                    builder.connectTimeout(networkConfig.connectTimeoutSeconds.toLong(), TimeUnit.SECONDS)
+                    builder.readTimeout(networkConfig.readTimeoutSeconds.toLong(), TimeUnit.SECONDS)
                 }
                 .applyToClusterSettings { builder ->
-                    builder.serverSelectionTimeout(15, TimeUnit.SECONDS)
+                    builder.serverSelectionTimeout(networkConfig.serverSelectionTimeoutSeconds.toLong(), TimeUnit.SECONDS)
+                }
+                .applyToConnectionPoolSettings { builder ->
+                    builder.maxSize(networkConfig.maxPoolSize)
+                    builder.minSize(networkConfig.minPoolSize)
+                }
+                .applyToSslSettings { builder ->
+                    if (networkConfig.allowInvalidHostnames) {
+                        builder.invalidHostNameAllowed(true)
+                    }
                 }
                 .build()
 
@@ -482,6 +494,93 @@ class MongoManager {
             Result.success("Dropped index '$indexName' successfully.")
         } catch (e: Throwable) {
             Result.failure(Exception("Drop Index Error: ${e.message}", e))
+        }
+    }
+
+    suspend fun getServerStatus(): Result<ServerStatusMetrics> = withContext(Dispatchers.IO) {
+        val activeClient = client ?: return@withContext Result.failure(Exception("Not connected to MongoDB"))
+        try {
+            val statusDoc = activeClient.getDatabase("admin").runCommand(Document("serverStatus", 1))
+
+            val connections = statusDoc.get("connections") as? Document
+            val currConn = (connections?.get("current") as? Number)?.toLong() ?: 0L
+            val availConn = (connections?.get("available") as? Number)?.toLong() ?: 0L
+            val totalConn = (connections?.get("totalCreated") as? Number)?.toLong() ?: 0L
+
+            val uptime = (statusDoc.get("uptime") as? Number)?.toLong() ?: 0L
+
+            val mem = statusDoc.get("mem") as? Document
+            val residentMem = (mem?.get("resident") as? Number)?.toLong() ?: 0L
+            val virtualMem = (mem?.get("virtual") as? Number)?.toLong() ?: 0L
+
+            val opcounters = statusDoc.get("opcounters") as? Document
+            val ins = (opcounters?.get("insert") as? Number)?.toLong() ?: 0L
+            val qry = (opcounters?.get("query") as? Number)?.toLong() ?: 0L
+            val upd = (opcounters?.get("update") as? Number)?.toLong() ?: 0L
+            val del = (opcounters?.get("delete") as? Number)?.toLong() ?: 0L
+            val cmd = (opcounters?.get("command") as? Number)?.toLong() ?: 0L
+
+            val network = statusDoc.get("network") as? Document
+            val bytesIn = (network?.get("bytesIn") as? Number)?.toDouble() ?: 0.0
+            val bytesOut = (network?.get("bytesOut") as? Number)?.toDouble() ?: 0.0
+
+            Result.success(
+                ServerStatusMetrics(
+                    currentConnections = currConn,
+                    availableConnections = availConn,
+                    totalCreatedConnections = totalConn,
+                    uptimeSeconds = uptime,
+                    residentMemoryMb = residentMem,
+                    virtualMemoryMb = virtualMem,
+                    opcountersInsert = ins,
+                    opcountersQuery = qry,
+                    opcountersUpdate = upd,
+                    opcountersDelete = del,
+                    opcountersCommand = cmd,
+                    networkBytesInFormatted = formatBytes(bytesIn),
+                    networkBytesOutFormatted = formatBytes(bytesOut)
+                )
+            )
+        } catch (e: Throwable) {
+            Result.failure(Exception("Failed to fetch serverStatus: ${e.message}", e))
+        }
+    }
+
+    suspend fun getCurrentOps(): Result<List<ActiveOperation>> = withContext(Dispatchers.IO) {
+        val activeClient = client ?: return@withContext Result.failure(Exception("Not connected to MongoDB"))
+        try {
+            val cmd = Document("currentOp", 1).append("\$all", true)
+            val res = activeClient.getDatabase("admin").runCommand(cmd)
+
+            val inprog = res.get("inprog") as? List<*> ?: emptyList<Any>()
+            val ops = inprog.filterIsInstance<Document>().map { doc ->
+                val opId = (doc.get("opid") as? Number)?.toLong() ?: 0L
+                val ns = doc.getString("ns") ?: "system"
+                val opType = doc.getString("op") ?: "command"
+                val secs = (doc.get("secs_running") as? Number)?.toLong() ?: 0L
+                val queryDoc = doc.get("command") as? Document ?: doc.get("query") as? Document
+                val queryJson = queryDoc?.toJson(prettyJsonSettings) ?: "{}"
+                ActiveOperation(
+                    opId = opId,
+                    ns = ns,
+                    op = opType,
+                    secsRunning = secs,
+                    queryJson = queryJson
+                )
+            }
+            Result.success(ops)
+        } catch (e: Throwable) {
+            Result.failure(Exception("Failed to fetch currentOp: ${e.message}", e))
+        }
+    }
+
+    suspend fun killOp(opId: Long): Result<String> = withContext(Dispatchers.IO) {
+        val activeClient = client ?: return@withContext Result.failure(Exception("Not connected to MongoDB"))
+        try {
+            activeClient.getDatabase("admin").runCommand(Document("killOp", 1).append("op", opId))
+            Result.success("Operation $opId killed successfully.")
+        } catch (e: Throwable) {
+            Result.failure(Exception("Failed to kill op $opId: ${e.message}", e))
         }
     }
 

@@ -36,8 +36,8 @@ import androidx.compose.ui.unit.sp
 import com.vizx.mongodbclient.data.ConnectionState
 import com.vizx.mongodbclient.ui.MongoUiState
 import com.vizx.mongodbclient.ui.MongoViewModel
-import com.vizx.mongodbclient.ui.components.ButtonVariant
 import com.vizx.mongodbclient.ui.components.ConsoleLogViewer
+import com.vizx.mongodbclient.ui.components.NetworkConfigCard
 import com.vizx.mongodbclient.ui.components.SkeletonBadge
 import com.vizx.mongodbclient.ui.components.SkeletonButton
 import com.vizx.mongodbclient.ui.components.SkeletonCard
@@ -85,6 +85,12 @@ fun LoginScreen(
                     onProfileNameChange = viewModel::onProfileNameChange,
                     onUriChange = viewModel::onUriChange,
                     onConnect = viewModel::connect
+                )
+
+                // Network & Socket Configuration (Phase 4)
+                NetworkConfigCard(
+                    config = uiState.networkConfig,
+                    onConfigChange = viewModel::onNetworkConfigChange
                 )
 
                 // Atlas Setup Helper Box
