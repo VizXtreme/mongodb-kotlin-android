@@ -276,7 +276,8 @@ class MongoViewModel @JvmOverloads constructor(
             val collsRes = mongoManager.getCollectionSummaries(dbName)
             collsRes.onSuccess { colls ->
                 val firstColl = colls.firstOrNull()?.name ?: ""
-                val chosenColl = if (it.selectedCollection.isEmpty() || colls.none { c -> c.name == it.selectedCollection }) firstColl else it.selectedCollection
+                val currentSelected = _uiState.value.selectedCollection
+                val chosenColl = if (currentSelected.isEmpty() || colls.none { c -> c.name == currentSelected }) firstColl else currentSelected
                 _uiState.update { state ->
                     state.copy(
                         collectionSummaries = colls,
