@@ -3,10 +3,6 @@ package javax.security.sasl;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Map;
-import javax.security.auth.callback.Callback;
-import javax.security.auth.callback.CallbackHandler;
-import javax.security.auth.callback.NameCallback;
-import javax.security.auth.callback.PasswordCallback;
 
 public class Sasl {
     public static final String QOP = "javax.security.sasl.qop";
@@ -34,96 +30,11 @@ public class Sasl {
             String protocol,
             String serverName,
             Map<String, ?> props,
-            CallbackHandler cbh) throws SaslException {
-        for (String mech : mechanisms) {
-            if ("PLAIN".equalsIgnoreCase(mech)) {
-                return new PlainClient(authorizationId, cbh);
-            }
-        }
+            Object cbh) throws SaslException {
         return null;
     }
 
-    public static Enumeration<SaslClientFactory> getSaslClientFactories() {
+    public static Enumeration<?> getSaslClientFactories() {
         return Collections.emptyEnumeration();
-    }
-
-    private static class PlainClient implements SaslClient {
-        private final String authorizationId;
-        private final CallbackHandler cbh;
-        private boolean completed = false;
-
-        PlainClient(String authorizationId, CallbackHandler cbh) {
-            this.authorizationId = authorizationId;
-            this.cbh = cbh;
-        }
-
-        @Override
-        public String getMechanismName() {
-            return "PLAIN";
-        }
-
-        @Override
-        public boolean hasInitialResponse() {
-            return true;
-        }
-
-        @Override
-        public byte[] evaluateChallenge(byte[] challenge) throws SaslException {
-            if (completed) {
-                throw new SaslException("PLAIN authentication already completed");
-            }
-            completed = true;
-            try {
-                NameCallback nc = new NameCallback("User name:");
-                PasswordCallback pc = new PasswordCallback("Password:", false);
-                cbh.handle(new Callback[]{nc, pc});
-
-                String authId = authorizationId != null ? authorizationId : "";
-                String user = nc.getName() != null ? nc.getName() : "";
-                char[] pw = pc.getPassword();
-                String pass = pw != null ? new String(pw) : "";
-                pc.clearPassword();
-
-                // RFC 4616: [authzid] UTF8NUL authcid UTF8NUL passwd
-                byte[] authIdBytes = authId.getBytes("UTF-8");
-                byte[] userBytes = user.getBytes("UTF-8");
-                byte[] passBytes = pass.getBytes("UTF-8");
-
-                byte[] response = new byte[authIdBytes.length + 1 + userBytes.length + 1 + passBytes.length];
-                System.arraycopy(authIdBytes, 0, response, 0, authIdBytes.length);
-                response[authIdBytes.length] = 0;
-                System.arraycopy(userBytes, 0, response, authIdBytes.length + 1, userBytes.length);
-                response[authIdBytes.length + 1 + userBytes.length] = 0;
-                System.arraycopy(passBytes, 0, response, authIdBytes.length + 1 + userBytes.length + 1, passBytes.length);
-
-                return response;
-            } catch (Exception e) {
-                throw new SaslException("PLAIN authentication failed", e);
-            }
-        }
-
-        @Override
-        public boolean isComplete() {
-            return completed;
-        }
-
-        @Override
-        public byte[] unwrap(byte[] incoming, int offset, int len) {
-            throw new IllegalStateException("PLAIN does not support integrity or privacy");
-        }
-
-        @Override
-        public byte[] wrap(byte[] outgoing, int offset, int len) {
-            throw new IllegalStateException("PLAIN does not support integrity or privacy");
-        }
-
-        @Override
-        public Object getNegotiatedProperty(String propName) {
-            return null;
-        }
-
-        @Override
-        public void dispose() {
-        }
     }
 }

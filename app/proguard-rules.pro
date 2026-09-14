@@ -2,6 +2,6 @@
 -keep class com.mongodb.** { *; }
 -keep class org.bson.** { *; }
 -keep class javax.security.sasl.** { *; }
--keep class javax.security.auth.callback.** { *; }
 -dontwarn javax.naming.**
 -dontwarn javax.management.**
+-dontwarn javax.security.auth.callback.**
