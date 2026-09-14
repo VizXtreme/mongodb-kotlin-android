@@ -41,7 +41,7 @@ class AndroidDnsClient : DnsClient {
                 Log.d(TAG, "DoH resolved ${dohResults.size} records for '$trimmedName'")
                 return dohResults
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.w(TAG, "DoH resolution failed for '$trimmedName': ${e.message}, falling back to dnsjava")
         }
 
@@ -52,7 +52,7 @@ class AndroidDnsClient : DnsClient {
                 Log.d(TAG, "dnsjava resolved ${dnsJavaResults.size} records for '$trimmedName'")
                 return dnsJavaResults
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "dnsjava resolution failed for '$trimmedName': ${e.message}", e)
         }
 
@@ -98,7 +98,7 @@ class AndroidDnsClient : DnsClient {
                         }
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.w(TAG, "Endpoint $endpoint failed: ${e.message}")
             }
         }

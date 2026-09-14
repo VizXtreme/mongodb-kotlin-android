@@ -46,10 +46,13 @@ data class MongoUiState(
     val logs: List<LogEntry> = emptyList()
 )
 
-class MongoViewModel(
+class MongoViewModel @JvmOverloads constructor(
     application: Application,
     private val mongoManager: MongoManager = MongoManager()
 ) : AndroidViewModel(application) {
+
+    constructor(application: Application) : this(application, MongoManager())
+
 
     private val storage = ConnectionStorage(application.applicationContext)
     private val _uiState = MutableStateFlow(MongoUiState())
@@ -154,36 +157,46 @@ class MongoViewModel(
             _uiState.update { it.copy(isLoading = true, connectionState = ConnectionState.Connecting(uri)) }
             log("Connecting to MongoDB URI...", LogLevel.INFO)
 
-            val result = mongoManager.connect(uri)
-            result.onSuccess { connected ->
-                // Persist profile
-                storage.saveConnection(name, uri)
-                loadSavedConnections()
+            try {
+                val result = mongoManager.connect(uri)
+                result.onSuccess { connected ->
+                    // Persist profile
+                    storage.saveConnection(name, uri)
+                    loadSavedConnections()
 
-                val firstDb = connected.databases.firstOrNull() ?: ""
+                    val firstDb = connected.databases.firstOrNull() ?: ""
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            connectionState = connected,
+                            databases = connected.databases,
+                            selectedDatabase = firstDb,
+                            currentScreen = AppScreen.HOME // Automatically switch to HomePage upon successful connection
+                        )
+                    }
+                    log("Connected successfully to ${connected.serverVersion} (ping: ${connected.pingMs}ms)", LogLevel.SUCCESS)
+                    log("Databases available: ${connected.databases.joinToString(", ")}", LogLevel.INFO)
+
+                    if (firstDb.isNotEmpty()) {
+                        loadDatabaseDetails(firstDb)
+                    }
+                }.onFailure { err ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            connectionState = ConnectionState.Error(err.message ?: "Connection failed", err.stackTraceToString())
+                        )
+                    }
+                    log("Connection Failed: ${err.message}", LogLevel.ERROR)
+                }
+            } catch (t: Throwable) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        connectionState = connected,
-                        databases = connected.databases,
-                        selectedDatabase = firstDb,
-                        currentScreen = AppScreen.HOME // Automatically switch to HomePage upon successful connection
+                        connectionState = ConnectionState.Error(t.localizedMessage ?: t.toString(), t.stackTraceToString())
                     )
                 }
-                log("Connected successfully to ${connected.serverVersion} (ping: ${connected.pingMs}ms)", LogLevel.SUCCESS)
-                log("Databases available: ${connected.databases.joinToString(", ")}", LogLevel.INFO)
-
-                if (firstDb.isNotEmpty()) {
-                    loadDatabaseDetails(firstDb)
-                }
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        connectionState = ConnectionState.Error(err.message ?: "Connection failed", err.stackTraceToString())
-                    )
-                }
-                log("Connection Failed: ${err.message}", LogLevel.ERROR)
+                log("Connection Exception (${t.javaClass.simpleName}): ${t.message}", LogLevel.ERROR)
             }
         }
     }

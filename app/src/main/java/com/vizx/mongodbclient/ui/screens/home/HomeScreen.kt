@@ -6,8 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -320,7 +320,6 @@ private fun DatabaseDropdown(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CollectionsExplorerCard(
     collections: List<CollectionSummary>,
@@ -336,19 +335,18 @@ private fun CollectionsExplorerCard(
                 color = SkeletonTheme.TextDisabled
             )
         } else {
-            FlowRow(
+            LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                collections.forEach { coll ->
+                items(collections) { coll ->
                     val isSelected = coll.name == selectedCollection
                     Row(
                         modifier = Modifier
                             .background(if (isSelected) SkeletonTheme.BorderFocused else SkeletonTheme.SurfaceElevated, RectangleShape)
                             .border(1.dp, if (isSelected) Color.White else SkeletonTheme.Border, RectangleShape)
                             .clickable { onSelectCollection(coll.name) }
-                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(

@@ -57,26 +57,26 @@ class MongoManager {
             try {
                 val buildInfo = adminDb.runCommand(Document("buildInfo", 1))
                 serverVersion = "MongoDB v${buildInfo.getString("version") ?: "Unknown"}"
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
             }
 
             // Fetch database list
             val dbNames = try {
                 newClient.listDatabaseNames().into(ArrayList())
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 val defaultDb = connectionString.database
                 if (!defaultDb.isNullOrBlank()) listOf(defaultDb) else listOf("test")
             }
 
             val clusterType = try {
                 newClient.clusterDescription.type.name
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 "REPLICA_SET"
             }
 
             val hosts = try {
                 newClient.clusterDescription.serverDescriptions.map { it.address.toString() }
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 emptyList()
             }
 
@@ -106,9 +106,9 @@ class MongoManager {
         } catch (e: MongoTimeoutException) {
             disconnect()
             Result.failure(Exception("Connection Timed Out: Unable to reach MongoDB cluster.\nVerify that your IP address is whitelisted in MongoDB Atlas (Network Access -> Add IP Address: 0.0.0.0/0 for testing).\n${e.message}", e))
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             disconnect()
-            Result.failure(Exception("Connection Error: ${e.localizedMessage ?: e.message}", e))
+            Result.failure(Exception("Connection Error (${e.javaClass.simpleName}): ${e.localizedMessage ?: e.message}", e))
         }
     }
 
@@ -118,7 +118,7 @@ class MongoManager {
             val start = System.currentTimeMillis()
             activeClient.getDatabase("admin").runCommand(Document("ping", 1))
             Result.success(System.currentTimeMillis() - start)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(e)
         }
     }
@@ -151,7 +151,7 @@ class MongoManager {
                     indexSizeFormatted = formatBytes(idxSize)
                 )
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(Exception("Failed to fetch stats for '$dbName': ${e.message}", e))
         }
     }
@@ -166,13 +166,13 @@ class MongoManager {
             val summaries = collNames.map { name ->
                 val count = try {
                     db.getCollection(name).estimatedDocumentCount()
-                } catch (_: Exception) {
+                } catch (_: Throwable) {
                     0L
                 }
                 CollectionSummary(name = name, documentCount = count)
             }
             Result.success(summaries)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(e)
         }
     }
@@ -183,7 +183,7 @@ class MongoManager {
             val db = activeClient.getDatabase(dbName)
             val colls = db.listCollectionNames().into(ArrayList())
             Result.success(colls)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(e)
         }
     }
@@ -213,7 +213,7 @@ class MongoManager {
                     message = "Found ${docs.size} of $totalCount document(s) (${executionTime}ms)"
                 )
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(Exception("Find Error: ${e.message}", e))
         }
     }
@@ -243,7 +243,7 @@ class MongoManager {
                     message = "Inserted 1 document with _id: $idStr (${executionTime}ms)"
                 )
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(Exception("Insert Error: ${e.message}", e))
         }
     }
@@ -283,7 +283,7 @@ class MongoManager {
                     message = "Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}, Acknowledged: ${result.wasAcknowledged()} (${executionTime}ms)"
                 )
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(Exception("Update Error: ${e.message}", e))
         }
     }
@@ -316,7 +316,7 @@ class MongoManager {
                     message = "Deleted: ${result.deletedCount} document(s) (${executionTime}ms)"
                 )
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.failure(Exception("Delete Error: ${e.message}", e))
         }
     }
@@ -338,7 +338,7 @@ class MongoManager {
     fun disconnect() {
         try {
             client?.close()
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
         } finally {
             client = null
         }
