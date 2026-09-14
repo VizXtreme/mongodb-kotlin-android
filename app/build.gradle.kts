@@ -59,7 +59,13 @@ android {
                 "/META-INF/DEPENDENCIES",
                 "/META-INF/LICENSE*",
                 "/META-INF/NOTICE*",
-                "/META-INF/*.md"
+                "/META-INF/*.md",
+                "META-INF/native-image/**",
+                "/META-INF/native-image/**"
+            )
+            pickFirsts += setOf(
+                "META-INF/native-image/**",
+                "META-INF/native-image/*/*/*"
             )
         }
     }
