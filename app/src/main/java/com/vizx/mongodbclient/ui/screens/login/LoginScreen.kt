@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.vizx.mongodbclient.data.ConnectionState
 import com.vizx.mongodbclient.ui.MongoUiState
 import com.vizx.mongodbclient.ui.MongoViewModel
+import com.vizx.mongodbclient.ui.components.ButtonVariant
 import com.vizx.mongodbclient.ui.components.ConsoleLogViewer
 import com.vizx.mongodbclient.ui.components.NetworkConfigCard
 import com.vizx.mongodbclient.ui.components.SkeletonBadge

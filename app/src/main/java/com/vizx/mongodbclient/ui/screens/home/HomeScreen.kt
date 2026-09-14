@@ -47,6 +47,7 @@ import com.vizx.mongodbclient.data.DatabaseStats
 import com.vizx.mongodbclient.data.MongoOperation
 import com.vizx.mongodbclient.ui.MongoUiState
 import com.vizx.mongodbclient.ui.MongoViewModel
+import com.vizx.mongodbclient.ui.components.ButtonVariant
 import com.vizx.mongodbclient.ui.components.ClusterMetricsCard
 import com.vizx.mongodbclient.ui.components.ConsoleLogViewer
 import com.vizx.mongodbclient.ui.components.CurrentOpsCard
