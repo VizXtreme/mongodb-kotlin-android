@@ -51,9 +51,6 @@ class MongoViewModel @JvmOverloads constructor(
     private val mongoManager: MongoManager = MongoManager()
 ) : AndroidViewModel(application) {
 
-    constructor(application: Application) : this(application, MongoManager())
-
-
     private val storage = ConnectionStorage(application.applicationContext)
     private val _uiState = MutableStateFlow(MongoUiState())
     val uiState: StateFlow<MongoUiState> = _uiState.asStateFlow()
