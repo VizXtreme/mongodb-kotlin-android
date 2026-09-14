@@ -1,0 +1,119 @@
+# MongoDB Kotlin Android Client — Comprehensive Phase-Wise Plan
+
+This document outlines the architectural roadmap and development milestones for building a production-grade, enterprise-ready MongoDB client on Android.
+
+---
+
+## Architecture Overview
+
+```mermaid
+flowchart TD
+    subgraph UI_Layer ["UI Layer (Modular & Decoupled)"]
+        LoginScreen["LoginScreen (Gateway & Saved Profiles)"]
+        HomeScreen["HomeScreen (Cluster Dashboard & CRUD)"]
+        Components["Reusable Components (Buttons, Cards, Inputs, Console)"]
+    end
+
+    subgraph State_Layer ["State & ViewModel Layer"]
+        VM["MongoViewModel (AndroidViewModel & StateFlow)"]
+        Storage["ConnectionStorage (Local Profile Persistence)"]
+    end
+
+    subgraph Core_Engine ["Core MongoDB Engine"]
+        Manager["MongoManager (Coroutines + Dispatchers.IO)"]
+        DNS["AndroidDnsClient (DoH + dnsjava for SRV/TXT)"]
+        SASL["SASL Shims (SCRAM-SHA-1 / 256 for Android)"]
+        Driver["MongoDB Sync Driver (Official 5.1.0)"]
+    end
+
+    LoginScreen --> VM
+    HomeScreen --> VM
+    Components -.-> LoginScreen
+    Components -.-> HomeScreen
+    VM --> Storage
+    VM --> Manager
+    Manager --> DNS
+    Manager --> SASL
+    Manager --> Driver
+    Driver --> RemoteCluster[("MongoDB Atlas / Self-Hosted")]
+```
+
+---
+
+## Phase 1: Core Engine & Android Runtime Compatibility (Completed)
+- [x] **Native DNS SRV/TXT Resolution**: Custom `AndroidDnsClient` implementing `com.mongodb.spi.dns.DnsClient` using DNS-over-HTTPS (Google & Cloudflare DoH) with `dnsjava` fallback to bypass missing `javax.naming`.
+- [x] **SPI Service Provider Registration**: Wired via `META-INF/services/com.mongodb.spi.dns.DnsClientProvider`.
+- [x] **Android SASL Authentication**: Native shims for `javax.security.sasl.*` (`SaslClient`, `SaslException`, `AuthenticationException`, `Sasl`) enabling SCRAM-SHA-1/256 authentication on Android ART.
+- [x] **Coroutines & Connection Management**: Complete asynchronous execution on `Dispatchers.IO`.
+- [x] **Automated CI/CD Pipeline**: GitHub Actions workflow (`.github/workflows/build.yml`) for automated building and APK artifact generation.
+
+---
+
+## Phase 2: Modular Architecture & Screen Separation (Current Phase)
+- [x] **UI Component Decoupling**:
+  - Independent `ui/components/` library: `SkeletonCard`, `SkeletonButton`, `SkeletonTextField`, `SkeletonBadge`, `MetricTile`, `ConsoleLogViewer`, and `SkeletonTheme`.
+  - Zero coupling between UI widgets and MongoDB driver code, enabling trivial styling revamps.
+- [x] **Dedicated Login Screen (`LoginScreen.kt`)**:
+  - Clean connection gateway.
+  - Connection profile management (save, switch, and delete clusters).
+  - Quick-paste for Atlas URIs and credential visibility toggling.
+  - Diagnostic error log console for instant troubleshooting.
+- [x] **Dedicated Home Screen (`HomeScreen.kt`)**:
+  - Live cluster topology: server version, architecture mode (ReplicaSet/Sharded), active replica hosts.
+  - Live cluster ping latency monitor (`[PING: XXms]`).
+  - Detailed Database Inspector (`dbStats`): Collections count, Document count, Data size, Storage size, Index count, Index size.
+  - Interactive Collections Explorer with real-time document count badges.
+  - Full CRUD execution panel (Find, Insert, Update, Delete) with raw JSON/BSON formatter.
+- [x] **Local Profile Storage**:
+  - `ConnectionStorage` utilizing persistent storage for saved clusters and last-connected metadata.
+
+---
+
+## Phase 3: Advanced Query & Data Manipulation Engine
+- [ ] **Aggregation Pipeline Builder**:
+  - Multi-stage pipeline executor supporting `$match`, `$group`, `$project`, `$sort`, `$limit`, `$unwind`, and `$lookup`.
+  - JSON pipeline syntax validator with error highlight.
+- [ ] **Projection & Sorting Controls**:
+  - Sort direction toggles (Ascending `1` / Descending `-1`).
+  - Projection builder to select or exclude specific document fields.
+- [ ] **Index Manager**:
+  - List collection indexes with key definitions, unique flags, and sparse properties.
+  - Create new single-field or compound indexes.
+  - Drop obsolete or unused indexes.
+- [ ] **Data Export & Sharing**:
+  - Export query results to formatted JSON or CSV files via Android Storage Access Framework (SAF).
+
+---
+
+## Phase 4: Security, Encryption & Advanced Networking
+- [ ] **Encrypted Profile Storage**:
+  - Secure connection string credentials using Android Jetpack `EncryptedSharedPreferences` backed by Android Keystore.
+  - Optional Biometric Authentication (Fingerprint / Face Unlock) to access saved production clusters.
+- [ ] **Custom TLS/SSL Certificates**:
+  - Support for self-signed certificates and enterprise internal Certificate Authorities (CA).
+  - Client certificate (X.509) authentication support.
+- [ ] **Connection Pool & Timeout Tuning**:
+  - Configurable socket timeouts, max pool size, and server selection timeouts in the connection form.
+
+---
+
+## Phase 5: Real-Time Cluster Monitoring & Performance Diagnostics
+- [ ] **Server Metrics Dashboard**:
+  - Real-time `serverStatus` polling: active connections, network traffic in/out, operations per second (opcounters).
+- [ ] **Replica Set Inspector (`rs.status()`)**:
+  - Primary, Secondary, and Arbiter health status.
+  - Replication lag and oplog duration indicators.
+- [ ] **Current Operations & Query Profiler**:
+  - Inspect currently executing queries via `db.currentOp()`.
+  - Terminate hung or slow operations via `db.killOp()`.
+
+---
+
+## Phase 6: Material 3 Expressive UI Revamp & Large Screen Optimization
+- [ ] **Material 3 Expressive Theming**:
+  - Swap skeleton design tokens with dynamic Material You color schemes.
+  - Dark Mode, Light Mode, and True Black (OLED) modes.
+- [ ] **Tablet & Foldable Optimization**:
+  - Dual-pane master-detail layout: Database & Collection sidebar on the left, Query editor and document inspection on the right.
+- [ ] **Visual Query Builder**:
+  - No-code filter builder for crafting MongoDB queries without typing raw JSON.

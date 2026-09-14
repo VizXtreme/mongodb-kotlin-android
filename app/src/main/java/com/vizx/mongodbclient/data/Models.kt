@@ -7,10 +7,43 @@ sealed interface ConnectionState {
         val uri: String,
         val serverVersion: String,
         val databases: List<String>,
-        val pingMs: Long
+        val pingMs: Long,
+        val clusterInfo: ClusterInfo? = null
     ) : ConnectionState
     data class Error(val message: String, val details: String? = null) : ConnectionState
 }
+
+data class ClusterInfo(
+    val serverVersion: String,
+    val clusterType: String,
+    val pingMs: Long,
+    val hosts: List<String> = emptyList(),
+    val connectionMode: String = "ReplicaSet",
+    val maxBsonObjectSizeMb: Double = 16.0
+)
+
+data class DatabaseStats(
+    val dbName: String,
+    val collectionsCount: Int = 0,
+    val objectsCount: Long = 0,
+    val avgObjSize: Double = 0.0,
+    val dataSizeFormatted: String = "0 B",
+    val storageSizeFormatted: String = "0 B",
+    val indexesCount: Int = 0,
+    val indexSizeFormatted: String = "0 B"
+)
+
+data class CollectionSummary(
+    val name: String,
+    val documentCount: Long = 0
+)
+
+data class SavedConnection(
+    val id: String,
+    val name: String,
+    val uri: String,
+    val lastConnected: Long = System.currentTimeMillis()
+)
 
 enum class MongoOperation(val label: String) {
     FIND("Find / Query"),
@@ -35,3 +68,8 @@ data class QueryResult(
     val executionTimeMs: Long = 0,
     val message: String = ""
 )
+
+enum class AppScreen {
+    LOGIN,
+    HOME
+}

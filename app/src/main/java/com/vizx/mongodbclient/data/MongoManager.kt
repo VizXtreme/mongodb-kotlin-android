@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.bson.Document
 import org.bson.json.JsonWriterSettings
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class MongoManager {
@@ -57,17 +58,35 @@ class MongoManager {
                 val buildInfo = adminDb.runCommand(Document("buildInfo", 1))
                 serverVersion = "MongoDB v${buildInfo.getString("version") ?: "Unknown"}"
             } catch (_: Exception) {
-                // Ignore if buildInfo is restricted by user permissions
             }
 
             // Fetch database list
             val dbNames = try {
                 newClient.listDatabaseNames().into(ArrayList())
             } catch (_: Exception) {
-                // Fallback: If listDatabases permission is restricted, try getting default db from URI
                 val defaultDb = connectionString.database
                 if (!defaultDb.isNullOrBlank()) listOf(defaultDb) else listOf("test")
             }
+
+            val clusterType = try {
+                newClient.clusterDescription.type.name
+            } catch (_: Exception) {
+                "REPLICA_SET"
+            }
+
+            val hosts = try {
+                newClient.clusterDescription.serverDescriptions.map { it.address.toString() }
+            } catch (_: Exception) {
+                emptyList()
+            }
+
+            val clusterInfo = ClusterInfo(
+                serverVersion = serverVersion,
+                clusterType = clusterType,
+                pingMs = pingMs,
+                hosts = hosts,
+                connectionMode = if (clusterType.contains("REPLICA", ignoreCase = true)) "Replica Set" else "Cluster"
+            )
 
             client = newClient
             currentUri = uri
@@ -77,7 +96,8 @@ class MongoManager {
                     uri = uri,
                     serverVersion = serverVersion,
                     databases = dbNames,
-                    pingMs = pingMs
+                    pingMs = pingMs,
+                    clusterInfo = clusterInfo
                 )
             )
         } catch (e: MongoSecurityException) {
@@ -89,6 +109,71 @@ class MongoManager {
         } catch (e: Exception) {
             disconnect()
             Result.failure(Exception("Connection Error: ${e.localizedMessage ?: e.message}", e))
+        }
+    }
+
+    suspend fun ping(): Result<Long> = withContext(Dispatchers.IO) {
+        val activeClient = client ?: return@withContext Result.failure(Exception("Not connected"))
+        try {
+            val start = System.currentTimeMillis()
+            activeClient.getDatabase("admin").runCommand(Document("ping", 1))
+            Result.success(System.currentTimeMillis() - start)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getDatabaseStats(dbName: String): Result<DatabaseStats> = withContext(Dispatchers.IO) {
+        val activeClient = client ?: return@withContext Result.failure(Exception("Not connected to MongoDB"))
+        if (dbName.isBlank()) return@withContext Result.failure(Exception("Database name is blank"))
+
+        try {
+            val db = activeClient.getDatabase(dbName)
+            val statsDoc = db.runCommand(Document("dbStats", 1))
+
+            val collCount = (statsDoc.get("collections") as? Number)?.toInt() ?: 0
+            val objCount = (statsDoc.get("objects") as? Number)?.toLong() ?: 0L
+            val avgSize = (statsDoc.get("avgObjSize") as? Number)?.toDouble() ?: 0.0
+            val dataSize = (statsDoc.get("dataSize") as? Number)?.toDouble() ?: 0.0
+            val storageSize = (statsDoc.get("storageSize") as? Number)?.toDouble() ?: 0.0
+            val idxCount = (statsDoc.get("indexes") as? Number)?.toInt() ?: 0
+            val idxSize = (statsDoc.get("indexSize") as? Number)?.toDouble() ?: 0.0
+
+            Result.success(
+                DatabaseStats(
+                    dbName = dbName,
+                    collectionsCount = collCount,
+                    objectsCount = objCount,
+                    avgObjSize = avgSize,
+                    dataSizeFormatted = formatBytes(dataSize),
+                    storageSizeFormatted = formatBytes(storageSize),
+                    indexesCount = idxCount,
+                    indexSizeFormatted = formatBytes(idxSize)
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(Exception("Failed to fetch stats for '$dbName': ${e.message}", e))
+        }
+    }
+
+    suspend fun getCollectionSummaries(dbName: String): Result<List<CollectionSummary>> = withContext(Dispatchers.IO) {
+        val activeClient = client ?: return@withContext Result.failure(Exception("Not connected to MongoDB"))
+        if (dbName.isBlank()) return@withContext Result.failure(Exception("Database name is blank"))
+
+        try {
+            val db = activeClient.getDatabase(dbName)
+            val collNames = db.listCollectionNames().into(ArrayList())
+            val summaries = collNames.map { name ->
+                val count = try {
+                    db.getCollection(name).estimatedDocumentCount()
+                } catch (_: Exception) {
+                    0L
+                }
+                CollectionSummary(name = name, documentCount = count)
+            }
+            Result.success(summaries)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
@@ -178,7 +263,6 @@ class MongoManager {
             val filterDoc = Document.parse(filterJson)
             var updateDoc = Document.parse(updateJson)
 
-            // If user did not provide an update operator (e.g. $set), wrap it in $set
             val hasOperator = updateDoc.keys.any { it.startsWith("$") }
             if (!hasOperator) {
                 updateDoc = Document("\$set", updateDoc)
@@ -241,6 +325,14 @@ class MongoManager {
         val activeClient = client ?: return null
         if (dbName.isBlank() || collectionName.isBlank()) return null
         return activeClient.getDatabase(dbName).getCollection(collectionName)
+    }
+
+    private fun formatBytes(bytes: Double): String {
+        if (bytes <= 0) return "0 B"
+        val units = arrayOf("B", "KB", "MB", "GB", "TB")
+        val digitGroups = (Math.log10(bytes) / Math.log10(1024.0)).toInt().coerceIn(0, units.size - 1)
+        val value = bytes / Math.pow(1024.0, digitGroups.toDouble())
+        return String.format(Locale.US, "%.2f %s", value, units[digitGroups])
     }
 
     fun disconnect() {
