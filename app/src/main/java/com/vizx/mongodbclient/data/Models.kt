@@ -114,3 +114,53 @@ enum class AppScreen {
     LOGIN,
     HOME
 }
+
+enum class AppTheme(val label: String) {
+    TERMINAL_DARK("TERMINAL (DARK)"),
+    OLED_BLACK("OLED (BLACK)"),
+    CRT_AMBER("CRT AMBER (RETRO)"),
+    PAPER_LIGHT("PAPER (LIGHT)")
+}
+
+data class ReplicaSetMember(
+    val id: Long = 0,
+    val name: String = "",
+    val stateStr: String = "UNKNOWN",
+    val health: Double = 1.0,
+    val uptimeSeconds: Long = 0,
+    val pingMs: Long = 0,
+    val isSelf: Boolean = false
+)
+
+data class ReplicaSetInfo(
+    val setName: String = "",
+    val isReplicaSet: Boolean = true,
+    val myState: String = "1",
+    val primaryHost: String? = null,
+    val members: List<ReplicaSetMember> = emptyList()
+)
+
+enum class QueryOperator(val label: String, val mongoOp: String) {
+    EQUALS("Equals (=)", "\$eq"),
+    NOT_EQUALS("Not Equals (!=)", "\$ne"),
+    GREATER_THAN("Greater Than (>)", "\$gt"),
+    GREATER_THAN_OR_EQUAL("Greater or Equal (>=)", "\$gte"),
+    LESS_THAN("Less Than (<)", "\$lt"),
+    LESS_THAN_OR_EQUAL("Less or Equal (<=)", "\$lte"),
+    CONTAINS_TEXT("Contains Text (regex)", "\$regex"),
+    IN_ARRAY("In Array (comma-separated)", "\$in")
+}
+
+enum class FieldValueType(val label: String) {
+    STRING("String"),
+    NUMBER("Number"),
+    BOOLEAN("Boolean")
+}
+
+data class QueryFilterRule(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val field: String = "",
+    val operator: QueryOperator = QueryOperator.EQUALS,
+    val value: String = "",
+    val valueType: FieldValueType = FieldValueType.STRING
+)

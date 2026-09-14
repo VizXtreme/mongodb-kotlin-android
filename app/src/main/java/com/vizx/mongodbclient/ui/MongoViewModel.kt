@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vizx.mongodbclient.data.ActiveOperation
 import com.vizx.mongodbclient.data.AppScreen
+import com.vizx.mongodbclient.data.AppTheme
 import com.vizx.mongodbclient.data.CollectionSummary
 import com.vizx.mongodbclient.data.ConnectionState
 import com.vizx.mongodbclient.data.ConnectionStorage
@@ -15,7 +16,9 @@ import com.vizx.mongodbclient.data.LogLevel
 import com.vizx.mongodbclient.data.MongoManager
 import com.vizx.mongodbclient.data.MongoOperation
 import com.vizx.mongodbclient.data.NetworkConfig
+import com.vizx.mongodbclient.data.QueryFilterRule
 import com.vizx.mongodbclient.data.QueryResult
+import com.vizx.mongodbclient.data.ReplicaSetInfo
 import com.vizx.mongodbclient.data.SavedConnection
 import com.vizx.mongodbclient.data.ServerStatusMetrics
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +33,7 @@ import java.util.Locale
 
 data class MongoUiState(
     val currentScreen: AppScreen = AppScreen.LOGIN,
+    val theme: AppTheme = AppTheme.TERMINAL_DARK,
     val uri: String = "mongodb+srv://username:password@cluster0.ywgy3ll.mongodb.net/?appName=Cluster0",
     val profileName: String = "",
     val showPassword: Boolean = false,
@@ -55,8 +59,12 @@ data class MongoUiState(
     val indexSummaries: List<IndexSummary> = emptyList(),
     val serverMetrics: ServerStatusMetrics? = null,
     val activeOperations: List<ActiveOperation> = emptyList(),
+    val replicaSetInfo: ReplicaSetInfo? = null,
     val isLoadingMetrics: Boolean = false,
     val isLoadingOps: Boolean = false,
+    val isLoadingReplicaSet: Boolean = false,
+    val queryRules: List<QueryFilterRule> = emptyList(),
+    val isVisualBuilderMode: Boolean = false,
     val isLoading: Boolean = false,
     val isRefreshingStats: Boolean = false,
     val logs: List<LogEntry> = emptyList()
@@ -220,6 +228,7 @@ class MongoViewModel @JvmOverloads constructor(
                         loadDatabaseDetails(firstDb)
                     }
                     loadServerMetrics()
+                    loadReplicaSetStatus()
                 }.onFailure { err ->
                     _uiState.update {
                         it.copy(
@@ -239,6 +248,64 @@ class MongoViewModel @JvmOverloads constructor(
                 log("Connection Exception (${t.javaClass.simpleName}): ${t.message}", LogLevel.ERROR)
             }
         }
+    }
+
+    fun onThemeSelected(theme: AppTheme) {
+        _uiState.update { it.copy(theme = theme) }
+        com.vizx.mongodbclient.ui.components.SkeletonTheme.setTheme(theme)
+    }
+
+    fun loadReplicaSetStatus() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingReplicaSet = true) }
+            val res = mongoManager.getReplicaSetStatus()
+            res.onSuccess { info ->
+                _uiState.update { it.copy(replicaSetInfo = info, isLoadingReplicaSet = false) }
+                if (info.isReplicaSet) {
+                    log("ReplicaSet: ${info.setName} (${info.members.size} members, primary: ${info.primaryHost ?: "N/A"})", LogLevel.INFO)
+                } else {
+                    log("Cluster: Standalone / Sharded router mode", LogLevel.INFO)
+                }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isLoadingReplicaSet = false) }
+                log("ReplicaSet notice: ${err.message}", LogLevel.WARN)
+            }
+        }
+    }
+
+    fun onAddQueryRule() {
+        val newRule = QueryFilterRule()
+        _uiState.update { it.copy(queryRules = it.queryRules + newRule) }
+    }
+
+    fun onUpdateQueryRule(updated: QueryFilterRule) {
+        _uiState.update { state ->
+            val index = state.queryRules.indexOfFirst { it.id == updated.id }
+            if (index >= 0) {
+                val copy = state.queryRules.toMutableList()
+                copy[index] = updated
+                state.copy(queryRules = copy)
+            } else state
+        }
+    }
+
+    fun onRemoveQueryRule(id: String) {
+        _uiState.update { state ->
+            state.copy(queryRules = state.queryRules.filter { it.id != id })
+        }
+    }
+
+    fun onClearQueryRules() {
+        _uiState.update { it.copy(queryRules = emptyList()) }
+    }
+
+    fun onToggleVisualBuilderMode() {
+        _uiState.update { it.copy(isVisualBuilderMode = !it.isVisualBuilderMode) }
+    }
+
+    fun onApplyVisualFilter(generatedJson: String) {
+        _uiState.update { it.copy(filterJson = generatedJson) }
+        log("Visual query filter applied to active query.", LogLevel.INFO)
     }
 
     fun loadServerMetrics() {

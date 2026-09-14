@@ -9,9 +9,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -55,11 +57,14 @@ import com.vizx.mongodbclient.ui.components.DocumentResultCard
 import com.vizx.mongodbclient.ui.components.IndexManagerCard
 import com.vizx.mongodbclient.ui.components.MetricTile
 import com.vizx.mongodbclient.ui.components.QueryOptionsCard
+import com.vizx.mongodbclient.ui.components.ReplicaSetCard
 import com.vizx.mongodbclient.ui.components.SkeletonBadge
 import com.vizx.mongodbclient.ui.components.SkeletonButton
 import com.vizx.mongodbclient.ui.components.SkeletonCard
 import com.vizx.mongodbclient.ui.components.SkeletonTextField
 import com.vizx.mongodbclient.ui.components.SkeletonTheme
+import com.vizx.mongodbclient.ui.components.ThemeSelectorCard
+import com.vizx.mongodbclient.ui.components.VisualQueryBuilderCard
 
 @Composable
 fun HomeScreen(
@@ -84,108 +89,260 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Column(
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .fillMaxWidth()
             ) {
-                // Cluster Topology Overview
-                val connected = uiState.connectionState as? ConnectionState.Connected
-                if (connected != null) {
-                    ClusterTopologyCard(connected = connected)
+                val isWideScreen = maxWidth >= 760.dp
 
-                    // Real-Time Server Status Telemetry
-                    ClusterMetricsCard(
-                        metrics = uiState.serverMetrics,
-                        isLoading = uiState.isLoadingMetrics,
-                        onRefresh = viewModel::loadServerMetrics
-                    )
+                if (isWideScreen) {
+                    // Two-Pane Master-Detail Responsive Layout for Tablets/Foldables/Landscape
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Left Master Pane: Cluster info, Replica Set, Telemetry, DBs, Collections, Indexes
+                        Column(
+                            modifier = Modifier
+                                .width(360.dp)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ThemeSelectorCard(
+                                currentTheme = uiState.theme,
+                                onSelectTheme = viewModel::onThemeSelected
+                            )
 
-                    // Active Operations & Op Profiler
-                    CurrentOpsCard(
-                        operations = uiState.activeOperations,
-                        isLoading = uiState.isLoadingOps,
-                        onRefresh = viewModel::loadCurrentOps,
-                        onKillOp = viewModel::killOp
-                    )
-                }
+                            val connected = uiState.connectionState as? ConnectionState.Connected
+                            if (connected != null) {
+                                ClusterTopologyCard(connected = connected)
 
-                // Database Selector & Detailed Stats Grid
-                DatabaseInspectorCard(
-                    databases = uiState.databases,
-                    selectedDb = uiState.selectedDatabase,
-                    stats = uiState.databaseStats,
-                    isRefreshing = uiState.isRefreshingStats,
-                    onSelectDb = viewModel::onDatabaseSelected,
-                    onRefresh = { viewModel.loadDatabaseDetails(uiState.selectedDatabase) }
-                )
+                                ReplicaSetCard(
+                                    replicaSetInfo = uiState.replicaSetInfo,
+                                    isLoading = uiState.isLoadingReplicaSet,
+                                    onRefresh = viewModel::loadReplicaSetStatus
+                                )
 
-                // Collections Explorer (With Create/Drop Actions)
-                CollectionsExplorerCard(
-                    collections = uiState.collectionSummaries,
-                    selectedCollection = uiState.selectedCollection,
-                    onSelectCollection = viewModel::onCollectionSelected,
-                    onCreateCollection = viewModel::createCollection,
-                    onDropCollection = viewModel::dropCollection
-                )
+                                ClusterMetricsCard(
+                                    metrics = uiState.serverMetrics,
+                                    isLoading = uiState.isLoadingMetrics,
+                                    onRefresh = viewModel::loadServerMetrics
+                                )
 
-                // Index Inspector & Manager
-                if (uiState.selectedCollection.isNotEmpty()) {
-                    IndexManagerCard(
-                        indexes = uiState.indexSummaries,
-                        selectedCollection = uiState.selectedCollection,
-                        onCreateIndex = viewModel::createIndex,
-                        onDropIndex = viewModel::dropIndex,
-                        onRefreshIndexes = {
-                            viewModel.loadIndexes(uiState.selectedDatabase, uiState.selectedCollection)
+                                CurrentOpsCard(
+                                    operations = uiState.activeOperations,
+                                    isLoading = uiState.isLoadingOps,
+                                    onRefresh = viewModel::loadCurrentOps,
+                                    onKillOp = viewModel::killOp
+                                )
+                            }
+
+                            DatabaseInspectorCard(
+                                databases = uiState.databases,
+                                selectedDb = uiState.selectedDatabase,
+                                stats = uiState.databaseStats,
+                                isRefreshing = uiState.isRefreshingStats,
+                                onSelectDb = viewModel::onDatabaseSelected,
+                                onRefresh = { viewModel.loadDatabaseDetails(uiState.selectedDatabase) }
+                            )
+
+                            CollectionsExplorerCard(
+                                collections = uiState.collectionSummaries,
+                                selectedCollection = uiState.selectedCollection,
+                                onSelectCollection = viewModel::onCollectionSelected,
+                                onCreateCollection = viewModel::createCollection,
+                                onDropCollection = viewModel::dropCollection
+                            )
+
+                            if (uiState.selectedCollection.isNotEmpty()) {
+                                IndexManagerCard(
+                                    indexes = uiState.indexSummaries,
+                                    selectedCollection = uiState.selectedCollection,
+                                    onCreateIndex = viewModel::createIndex,
+                                    onDropIndex = viewModel::dropIndex,
+                                    onRefreshIndexes = {
+                                        viewModel.loadIndexes(uiState.selectedDatabase, uiState.selectedCollection)
+                                    }
+                                )
+                            }
                         }
-                    )
+
+                        // Right Detail Pane: CRUD operations, Visual query builder, Results, Console logs
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CrudOperationsCard(
+                                selectedDb = uiState.selectedDatabase,
+                                selectedCollection = uiState.selectedCollection,
+                                activeOp = uiState.activeOperation,
+                                filterJson = uiState.filterJson,
+                                sortJson = uiState.sortJson,
+                                projectionJson = uiState.projectionJson,
+                                limit = uiState.limit,
+                                skip = uiState.skip,
+                                pipelineJson = uiState.pipelineJson,
+                                insertJson = uiState.insertJson,
+                                updateJson = uiState.updateJson,
+                                isMultiple = uiState.isMultiple,
+                                isLoading = uiState.isLoading,
+                                isVisualBuilderMode = uiState.isVisualBuilderMode,
+                                queryRules = uiState.queryRules,
+                                onToggleVisualBuilder = viewModel::onToggleVisualBuilderMode,
+                                onAddQueryRule = viewModel::onAddQueryRule,
+                                onUpdateQueryRule = viewModel::onUpdateQueryRule,
+                                onRemoveQueryRule = viewModel::onRemoveQueryRule,
+                                onClearQueryRules = viewModel::onClearQueryRules,
+                                onApplyVisualFilter = viewModel::onApplyVisualFilter,
+                                onSelectOp = viewModel::onOperationSelected,
+                                onFilterChange = viewModel::onFilterChange,
+                                onSortChange = viewModel::onSortChange,
+                                onProjectionChange = viewModel::onProjectionChange,
+                                onLimitChange = viewModel::onLimitChange,
+                                onSkipChange = viewModel::onSkipChange,
+                                onPipelineChange = viewModel::onPipelineChange,
+                                onInsertChange = viewModel::onInsertChange,
+                                onUpdateChange = viewModel::onUpdateChange,
+                                onMultipleToggle = viewModel::onMultipleToggle,
+                                onExecute = viewModel::executeOperation
+                            )
+
+                            ResultsViewerCard(
+                                documents = uiState.queryResult.documents,
+                                totalCount = uiState.queryResult.totalCount,
+                                message = uiState.queryResult.message,
+                                onEditDoc = viewModel::prepareEditDocument,
+                                onDeleteDoc = viewModel::deleteSingleDocument
+                            )
+
+                            ConsoleLogViewer(
+                                logs = uiState.logs,
+                                onClear = viewModel::clearLogs,
+                                height = 180.dp
+                            )
+                        }
+                    }
+                } else {
+                    // Single Column Scroll for Mobile Portrait
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ThemeSelectorCard(
+                            currentTheme = uiState.theme,
+                            onSelectTheme = viewModel::onThemeSelected
+                        )
+
+                        val connected = uiState.connectionState as? ConnectionState.Connected
+                        if (connected != null) {
+                            ClusterTopologyCard(connected = connected)
+
+                            ReplicaSetCard(
+                                replicaSetInfo = uiState.replicaSetInfo,
+                                isLoading = uiState.isLoadingReplicaSet,
+                                onRefresh = viewModel::loadReplicaSetStatus
+                            )
+
+                            ClusterMetricsCard(
+                                metrics = uiState.serverMetrics,
+                                isLoading = uiState.isLoadingMetrics,
+                                onRefresh = viewModel::loadServerMetrics
+                            )
+
+                            CurrentOpsCard(
+                                operations = uiState.activeOperations,
+                                isLoading = uiState.isLoadingOps,
+                                onRefresh = viewModel::loadCurrentOps,
+                                onKillOp = viewModel::killOp
+                            )
+                        }
+
+                        DatabaseInspectorCard(
+                            databases = uiState.databases,
+                            selectedDb = uiState.selectedDatabase,
+                            stats = uiState.databaseStats,
+                            isRefreshing = uiState.isRefreshingStats,
+                            onSelectDb = viewModel::onDatabaseSelected,
+                            onRefresh = { viewModel.loadDatabaseDetails(uiState.selectedDatabase) }
+                        )
+
+                        CollectionsExplorerCard(
+                            collections = uiState.collectionSummaries,
+                            selectedCollection = uiState.selectedCollection,
+                            onSelectCollection = viewModel::onCollectionSelected,
+                            onCreateCollection = viewModel::createCollection,
+                            onDropCollection = viewModel::dropCollection
+                        )
+
+                        if (uiState.selectedCollection.isNotEmpty()) {
+                            IndexManagerCard(
+                                indexes = uiState.indexSummaries,
+                                selectedCollection = uiState.selectedCollection,
+                                onCreateIndex = viewModel::createIndex,
+                                onDropIndex = viewModel::dropIndex,
+                                onRefreshIndexes = {
+                                    viewModel.loadIndexes(uiState.selectedDatabase, uiState.selectedCollection)
+                                }
+                            )
+                        }
+
+                        CrudOperationsCard(
+                            selectedDb = uiState.selectedDatabase,
+                            selectedCollection = uiState.selectedCollection,
+                            activeOp = uiState.activeOperation,
+                            filterJson = uiState.filterJson,
+                            sortJson = uiState.sortJson,
+                            projectionJson = uiState.projectionJson,
+                            limit = uiState.limit,
+                            skip = uiState.skip,
+                            pipelineJson = uiState.pipelineJson,
+                            insertJson = uiState.insertJson,
+                            updateJson = uiState.updateJson,
+                            isMultiple = uiState.isMultiple,
+                            isLoading = uiState.isLoading,
+                            isVisualBuilderMode = uiState.isVisualBuilderMode,
+                            queryRules = uiState.queryRules,
+                            onToggleVisualBuilder = viewModel::onToggleVisualBuilderMode,
+                            onAddQueryRule = viewModel::onAddQueryRule,
+                            onUpdateQueryRule = viewModel::onUpdateQueryRule,
+                            onRemoveQueryRule = viewModel::onRemoveQueryRule,
+                            onClearQueryRules = viewModel::onClearQueryRules,
+                            onApplyVisualFilter = viewModel::onApplyVisualFilter,
+                            onSelectOp = viewModel::onOperationSelected,
+                            onFilterChange = viewModel::onFilterChange,
+                            onSortChange = viewModel::onSortChange,
+                            onProjectionChange = viewModel::onProjectionChange,
+                            onLimitChange = viewModel::onLimitChange,
+                            onSkipChange = viewModel::onSkipChange,
+                            onPipelineChange = viewModel::onPipelineChange,
+                            onInsertChange = viewModel::onInsertChange,
+                            onUpdateChange = viewModel::onUpdateChange,
+                            onMultipleToggle = viewModel::onMultipleToggle,
+                            onExecute = viewModel::executeOperation
+                        )
+
+                        ResultsViewerCard(
+                            documents = uiState.queryResult.documents,
+                            totalCount = uiState.queryResult.totalCount,
+                            message = uiState.queryResult.message,
+                            onEditDoc = viewModel::prepareEditDocument,
+                            onDeleteDoc = viewModel::deleteSingleDocument
+                        )
+
+                        ConsoleLogViewer(
+                            logs = uiState.logs,
+                            onClear = viewModel::clearLogs,
+                            height = 140.dp
+                        )
+                    }
                 }
-
-                // CRUD Operations Panel (Enhanced with Aggregate & Count)
-                CrudOperationsCard(
-                    selectedDb = uiState.selectedDatabase,
-                    selectedCollection = uiState.selectedCollection,
-                    activeOp = uiState.activeOperation,
-                    filterJson = uiState.filterJson,
-                    sortJson = uiState.sortJson,
-                    projectionJson = uiState.projectionJson,
-                    limit = uiState.limit,
-                    skip = uiState.skip,
-                    pipelineJson = uiState.pipelineJson,
-                    insertJson = uiState.insertJson,
-                    updateJson = uiState.updateJson,
-                    isMultiple = uiState.isMultiple,
-                    isLoading = uiState.isLoading,
-                    onSelectOp = viewModel::onOperationSelected,
-                    onFilterChange = viewModel::onFilterChange,
-                    onSortChange = viewModel::onSortChange,
-                    onProjectionChange = viewModel::onProjectionChange,
-                    onLimitChange = viewModel::onLimitChange,
-                    onSkipChange = viewModel::onSkipChange,
-                    onPipelineChange = viewModel::onPipelineChange,
-                    onInsertChange = viewModel::onInsertChange,
-                    onUpdateChange = viewModel::onUpdateChange,
-                    onMultipleToggle = viewModel::onMultipleToggle,
-                    onExecute = viewModel::executeOperation
-                )
-
-                // Results Viewer (Interactive Document Cards with Copy, Edit, Delete)
-                ResultsViewerCard(
-                    documents = uiState.queryResult.documents,
-                    totalCount = uiState.queryResult.totalCount,
-                    message = uiState.queryResult.message,
-                    onEditDoc = viewModel::prepareEditDocument,
-                    onDeleteDoc = viewModel::deleteSingleDocument
-                )
-
-                // System Log Console
-                ConsoleLogViewer(
-                    logs = uiState.logs,
-                    onClear = viewModel::clearLogs,
-                    height = 140.dp
-                )
             }
         }
     }
@@ -535,6 +692,14 @@ private fun CrudOperationsCard(
     updateJson: String,
     isMultiple: Boolean,
     isLoading: Boolean,
+    isVisualBuilderMode: Boolean,
+    queryRules: List<com.vizx.mongodbclient.data.QueryFilterRule>,
+    onToggleVisualBuilder: () -> Unit,
+    onAddQueryRule: () -> Unit,
+    onUpdateQueryRule: (com.vizx.mongodbclient.data.QueryFilterRule) -> Unit,
+    onRemoveQueryRule: (String) -> Unit,
+    onClearQueryRules: () -> Unit,
+    onApplyVisualFilter: (String) -> Unit,
     onSelectOp: (MongoOperation) -> Unit,
     onFilterChange: (String) -> Unit,
     onSortChange: (String) -> Unit,
@@ -579,12 +744,46 @@ private fun CrudOperationsCard(
         // Dynamic CRUD Inputs
         when (activeOp) {
             MongoOperation.FIND -> {
-                SkeletonTextField(
-                    value = filterJson,
-                    onValueChange = onFilterChange,
-                    label = "Filter Query JSON (e.g. {} or {\"status\": \"active\"})",
-                    minLines = 2
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isVisualBuilderMode) "MODE: VISUAL BUILDER" else "MODE: RAW JSON FILTER",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SkeletonTheme.TextPrimary
+                    )
+                    Text(
+                        text = if (isVisualBuilderMode) "[SWITCH TO RAW JSON]" else "[SWITCH TO VISUAL BUILDER]",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        color = SkeletonTheme.Success,
+                        modifier = Modifier.clickable { onToggleVisualBuilder() }
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (isVisualBuilderMode) {
+                    VisualQueryBuilderCard(
+                        rules = queryRules,
+                        onAddRule = onAddQueryRule,
+                        onUpdateRule = onUpdateQueryRule,
+                        onRemoveRule = onRemoveQueryRule,
+                        onClearRules = onClearQueryRules,
+                        onApplyGeneratedFilter = onApplyVisualFilter
+                    )
+                } else {
+                    SkeletonTextField(
+                        value = filterJson,
+                        onValueChange = onFilterChange,
+                        label = "Filter Query JSON (e.g. {} or {\"status\": \"active\"})",
+                        minLines = 2
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
                 QueryOptionsCard(
                     sortJson = sortJson,

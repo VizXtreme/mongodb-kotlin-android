@@ -107,11 +107,16 @@ flowchart TD
 
 ---
 
-## Phase 6: Material 3 Expressive UI Revamp & Large Screen Optimization
-- [ ] **Material 3 Expressive Theming**:
-  - Swap skeleton design tokens with dynamic Material You color schemes.
-  - Dark Mode, Light Mode, and True Black (OLED) modes.
-- [ ] **Tablet & Foldable Optimization**:
-  - Dual-pane master-detail layout: Database & Collection sidebar on the left, Query editor and document inspection on the right.
-- [ ] **Visual Query Builder**:
-  - No-code filter builder for crafting MongoDB queries without typing raw JSON.
+## Phase 6: Multi-Theme Engine, Tablet Master-Detail & Visual Query Builder
+- [x] **Theme Engine (Retro Terminal & Modern Palettes)**:
+  - 4 high-contrast themes maintaining skeleton monospace minimalism: Terminal Dark (Matrix green/slate), OLED Black (True black/neon), CRT Amber (Vintage retro terminal), and Paper Light (Minimalist monochrome).
+  - Instant runtime theme switching via `ThemeSelectorCard`.
+- [x] **Tablet & Foldable Master-Detail Layout**:
+  - Responsive dual-pane layout using `BoxWithConstraints` (activates when width >= 760dp).
+  - Left master pane: Cluster Topology, Replica Set status, Telemetry metrics, Op profiler, Database & Collection explorers, Index manager.
+  - Right detail pane: CRUD operations, Visual Query Builder, Interactive document results viewer, Live diagnostic console.
+- [x] **Visual Query Builder**:
+  - No-code visual condition builder (`VisualQueryBuilderCard`) supporting multiple operators (`$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$regex`, `$in`) with type awareness (String, Number, Boolean).
+  - Live generated MongoDB JSON preview and one-click injection into the active filter query.
+- [x] **Replica Set Inspector (`replSetGetStatus`)**:
+  - Inspect cluster set name, primary node, member states (`[PRIMARY]`, `[SECONDARY]`, `[ARBITER]`), health check (1.0 vs 0.0), and ping latency in `ReplicaSetCard`.

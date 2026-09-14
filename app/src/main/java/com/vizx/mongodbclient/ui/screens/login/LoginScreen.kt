@@ -44,6 +44,7 @@ import com.vizx.mongodbclient.ui.components.SkeletonButton
 import com.vizx.mongodbclient.ui.components.SkeletonCard
 import com.vizx.mongodbclient.ui.components.SkeletonTextField
 import com.vizx.mongodbclient.ui.components.SkeletonTheme
+import com.vizx.mongodbclient.ui.components.ThemeSelectorCard
 
 @Composable
 fun LoginScreen(
@@ -70,6 +71,12 @@ fun LoginScreen(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Theme Mode Selector (Phase 6)
+                ThemeSelectorCard(
+                    currentTheme = uiState.theme,
+                    onSelectTheme = viewModel::onThemeSelected
+                )
+
                 // Saved Profiles Section
                 SavedProfilesCard(
                     saved = uiState.savedConnections,

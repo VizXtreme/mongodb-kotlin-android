@@ -584,6 +584,62 @@ class MongoManager {
         }
     }
 
+    suspend fun getReplicaSetStatus(): Result<ReplicaSetInfo> = withContext(Dispatchers.IO) {
+        val activeClient = client ?: return@withContext Result.failure(Exception("Not connected to MongoDB"))
+        try {
+            val statusDoc = activeClient.getDatabase("admin").runCommand(Document("replSetGetStatus", 1))
+            val setName = statusDoc.getString("set") ?: "ReplicaSet"
+            val myState = statusDoc.get("myState")?.toString() ?: "1"
+            val membersList = statusDoc.get("members") as? List<*> ?: emptyList<Any>()
+            var primaryHost: String? = null
+            val members = membersList.filterIsInstance<Document>().map { doc ->
+                val id = (doc.get("_id") as? Number)?.toLong() ?: 0L
+                val name = doc.getString("name") ?: ""
+                val stateStr = doc.getString("stateStr") ?: "UNKNOWN"
+                if (stateStr.equals("PRIMARY", ignoreCase = true)) {
+                    primaryHost = name
+                }
+                val health = (doc.get("health") as? Number)?.toDouble() ?: 1.0
+                val uptime = (doc.get("uptime") as? Number)?.toLong() ?: 0L
+                val ping = (doc.get("pingMs") as? Number)?.toLong() ?: 0L
+                val self = doc.getBoolean("self", false)
+                ReplicaSetMember(
+                    id = id,
+                    name = name,
+                    stateStr = stateStr,
+                    health = health,
+                    uptimeSeconds = uptime,
+                    pingMs = ping,
+                    isSelf = self
+                )
+            }
+            Result.success(
+                ReplicaSetInfo(
+                    setName = setName,
+                    isReplicaSet = true,
+                    myState = myState,
+                    primaryHost = primaryHost,
+                    members = members
+                )
+            )
+        } catch (e: Throwable) {
+            val msg = e.message ?: ""
+            if (msg.contains("not running with --replSet") || msg.contains("no replSet") || msg.contains("CommandNotFound") || msg.contains("not supported")) {
+                Result.success(
+                    ReplicaSetInfo(
+                        setName = "Standalone / Serverless",
+                        isReplicaSet = false,
+                        myState = "STANDALONE",
+                        primaryHost = null,
+                        members = emptyList()
+                    )
+                )
+            } else {
+                Result.failure(Exception("ReplicaSet status failed: ${e.message}", e))
+            }
+        }
+    }
+
     private fun getCollection(dbName: String, collectionName: String): MongoCollection<Document>? {
         val activeClient = client ?: return null
         if (dbName.isBlank() || collectionName.isBlank()) return null
