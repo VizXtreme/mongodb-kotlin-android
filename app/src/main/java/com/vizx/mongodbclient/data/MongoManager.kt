@@ -8,10 +8,12 @@ import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoCollection
 import com.vizx.mongodbclient.dns.AndroidDnsClient
+import com.mongodb.client.model.IndexOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.bson.Document
 import org.bson.json.JsonWriterSettings
+import org.json.JSONArray
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -192,7 +194,10 @@ class MongoManager {
         dbName: String,
         collectionName: String,
         filterJson: String,
-        limit: Int = 25
+        sortJson: String = "",
+        projectionJson: String = "",
+        limit: Int = 25,
+        skip: Int = 0
     ): Result<QueryResult> = withContext(Dispatchers.IO) {
         val coll = getCollection(dbName, collectionName)
             ?: return@withContext Result.failure(Exception("Not connected or invalid collection"))
@@ -201,7 +206,22 @@ class MongoManager {
             val startTime = System.currentTimeMillis()
             val filterDoc = if (filterJson.isBlank()) Document() else Document.parse(filterJson)
             val totalCount = coll.countDocuments(filterDoc)
-            val docs = coll.find(filterDoc).limit(limit).into(ArrayList())
+
+            var query = coll.find(filterDoc)
+            if (sortJson.isNotBlank() && sortJson.trim() != "{}") {
+                query = query.sort(Document.parse(sortJson))
+            }
+            if (projectionJson.isNotBlank() && projectionJson.trim() != "{}") {
+                query = query.projection(Document.parse(projectionJson))
+            }
+            if (skip > 0) {
+                query = query.skip(skip)
+            }
+            if (limit > 0) {
+                query = query.limit(limit)
+            }
+
+            val docs = query.into(ArrayList())
             val executionTime = System.currentTimeMillis() - startTime
 
             val jsonDocs = docs.map { it.toJson(prettyJsonSettings) }
@@ -210,7 +230,7 @@ class MongoManager {
                     documents = jsonDocs,
                     totalCount = totalCount,
                     executionTimeMs = executionTime,
-                    message = "Found ${docs.size} of $totalCount document(s) (${executionTime}ms)"
+                    message = "Found ${docs.size} of $totalCount matching document(s) (${executionTime}ms)"
                 )
             )
         } catch (e: Throwable) {
@@ -318,6 +338,150 @@ class MongoManager {
             )
         } catch (e: Throwable) {
             Result.failure(Exception("Delete Error: ${e.message}", e))
+        }
+    }
+
+    suspend fun aggregateDocuments(
+        dbName: String,
+        collectionName: String,
+        pipelineJson: String
+    ): Result<QueryResult> = withContext(Dispatchers.IO) {
+        val coll = getCollection(dbName, collectionName)
+            ?: return@withContext Result.failure(Exception("Not connected or invalid collection"))
+
+        try {
+            val startTime = System.currentTimeMillis()
+            val pipelineList = mutableListOf<Document>()
+
+            val trimmed = pipelineJson.trim()
+            if (trimmed.startsWith("[")) {
+                val jsonArray = JSONArray(trimmed)
+                for (i in 0 until jsonArray.length()) {
+                    pipelineList.add(Document.parse(jsonArray.getJSONObject(i).toString()))
+                }
+            } else if (trimmed.startsWith("{")) {
+                pipelineList.add(Document.parse(trimmed))
+            }
+
+            val docs = coll.aggregate(pipelineList).into(ArrayList())
+            val executionTime = System.currentTimeMillis() - startTime
+            val jsonDocs = docs.map { it.toJson(prettyJsonSettings) }
+
+            Result.success(
+                QueryResult(
+                    documents = jsonDocs,
+                    totalCount = docs.size.toLong(),
+                    executionTimeMs = executionTime,
+                    message = "Pipeline executed (${pipelineList.size} stages), returned ${docs.size} document(s) (${executionTime}ms)"
+                )
+            )
+        } catch (e: Throwable) {
+            Result.failure(Exception("Aggregation Error: ${e.message}", e))
+        }
+    }
+
+    suspend fun countDocuments(
+        dbName: String,
+        collectionName: String,
+        filterJson: String
+    ): Result<QueryResult> = withContext(Dispatchers.IO) {
+        val coll = getCollection(dbName, collectionName)
+            ?: return@withContext Result.failure(Exception("Not connected or invalid collection"))
+
+        try {
+            val startTime = System.currentTimeMillis()
+            val filterDoc = if (filterJson.isBlank()) Document() else Document.parse(filterJson)
+            val count = coll.countDocuments(filterDoc)
+            val executionTime = System.currentTimeMillis() - startTime
+
+            Result.success(
+                QueryResult(
+                    documents = listOf("{\n  \"collection\": \"$dbName.$collectionName\",\n  \"count\": $count,\n  \"filter\": ${filterDoc.toJson()}\n}"),
+                    totalCount = count,
+                    executionTimeMs = executionTime,
+                    message = "Counted $count document(s) matching filter (${executionTime}ms)"
+                )
+            )
+        } catch (e: Throwable) {
+            Result.failure(Exception("Count Error: ${e.message}", e))
+        }
+    }
+
+    suspend fun createCollection(dbName: String, collectionName: String): Result<String> = withContext(Dispatchers.IO) {
+        val activeClient = client ?: return@withContext Result.failure(Exception("Not connected to MongoDB"))
+        if (dbName.isBlank() || collectionName.isBlank()) return@withContext Result.failure(Exception("Invalid database or collection name"))
+
+        try {
+            activeClient.getDatabase(dbName).createCollection(collectionName.trim())
+            Result.success("Collection '${collectionName.trim()}' created successfully.")
+        } catch (e: Throwable) {
+            Result.failure(Exception("Create Collection Error: ${e.message}", e))
+        }
+    }
+
+    suspend fun dropCollection(dbName: String, collectionName: String): Result<String> = withContext(Dispatchers.IO) {
+        val coll = getCollection(dbName, collectionName)
+            ?: return@withContext Result.failure(Exception("Not connected or invalid collection"))
+
+        try {
+            coll.drop()
+            Result.success("Collection '$dbName.$collectionName' dropped successfully.")
+        } catch (e: Throwable) {
+            Result.failure(Exception("Drop Collection Error: ${e.message}", e))
+        }
+    }
+
+    suspend fun getIndexes(dbName: String, collectionName: String): Result<List<IndexSummary>> = withContext(Dispatchers.IO) {
+        val coll = getCollection(dbName, collectionName)
+            ?: return@withContext Result.failure(Exception("Not connected or invalid collection"))
+
+        try {
+            val indexes = coll.listIndexes().into(ArrayList())
+            val summaries = indexes.map { doc ->
+                val name = doc.getString("name") ?: "unnamed"
+                val keyDoc = doc.get("key") as? Document
+                val keysStr = keyDoc?.toJson() ?: "{}"
+                val isUnique = doc.getBoolean("unique") ?: false
+                IndexSummary(name = name, keys = keysStr, isUnique = isUnique)
+            }
+            Result.success(summaries)
+        } catch (e: Throwable) {
+            Result.failure(Exception("Get Indexes Error: ${e.message}", e))
+        }
+    }
+
+    suspend fun createIndex(
+        dbName: String,
+        collectionName: String,
+        keysJson: String,
+        isUnique: Boolean
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val coll = getCollection(dbName, collectionName)
+            ?: return@withContext Result.failure(Exception("Not connected or invalid collection"))
+
+        try {
+            val keysDoc = Document.parse(keysJson)
+            val options = IndexOptions().unique(isUnique)
+            val indexName = coll.createIndex(keysDoc, options)
+            Result.success("Created index '$indexName' successfully.")
+        } catch (e: Throwable) {
+            Result.failure(Exception("Create Index Error: ${e.message}", e))
+        }
+    }
+
+    suspend fun dropIndex(
+        dbName: String,
+        collectionName: String,
+        indexName: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val coll = getCollection(dbName, collectionName)
+            ?: return@withContext Result.failure(Exception("Not connected or invalid collection"))
+
+        try {
+            coll.dropIndex(indexName)
+            Result.success("Dropped index '$indexName' successfully.")
+        } catch (e: Throwable) {
+            Result.failure(Exception("Drop Index Error: ${e.message}", e))
         }
     }
 

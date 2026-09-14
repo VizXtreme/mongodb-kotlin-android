@@ -45,11 +45,19 @@ data class SavedConnection(
     val lastConnected: Long = System.currentTimeMillis()
 )
 
+data class IndexSummary(
+    val name: String,
+    val keys: String,
+    val isUnique: Boolean = false
+)
+
 enum class MongoOperation(val label: String) {
     FIND("Find / Query"),
     INSERT("Insert"),
     UPDATE("Update"),
-    DELETE("Delete")
+    DELETE("Delete"),
+    AGGREGATE("Aggregate Pipeline"),
+    COUNT("Count Documents")
 }
 
 enum class LogLevel {

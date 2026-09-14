@@ -1,13 +1,15 @@
 package com.vizx.mongodbclient.ui.screens.home
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,10 +17,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
@@ -33,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,7 +49,10 @@ import com.vizx.mongodbclient.ui.MongoUiState
 import com.vizx.mongodbclient.ui.MongoViewModel
 import com.vizx.mongodbclient.ui.components.ButtonVariant
 import com.vizx.mongodbclient.ui.components.ConsoleLogViewer
+import com.vizx.mongodbclient.ui.components.DocumentResultCard
+import com.vizx.mongodbclient.ui.components.IndexManagerCard
 import com.vizx.mongodbclient.ui.components.MetricTile
+import com.vizx.mongodbclient.ui.components.QueryOptionsCard
 import com.vizx.mongodbclient.ui.components.SkeletonBadge
 import com.vizx.mongodbclient.ui.components.SkeletonButton
 import com.vizx.mongodbclient.ui.components.SkeletonCard
@@ -97,36 +104,63 @@ fun HomeScreen(
                     onRefresh = { viewModel.loadDatabaseDetails(uiState.selectedDatabase) }
                 )
 
-                // Collections Explorer (Shows Document Counts)
+                // Collections Explorer (With Create/Drop Actions)
                 CollectionsExplorerCard(
                     collections = uiState.collectionSummaries,
                     selectedCollection = uiState.selectedCollection,
-                    onSelectCollection = viewModel::onCollectionSelected
+                    onSelectCollection = viewModel::onCollectionSelected,
+                    onCreateCollection = viewModel::createCollection,
+                    onDropCollection = viewModel::dropCollection
                 )
 
-                // CRUD Operations Panel
+                // Index Inspector & Manager
+                if (uiState.selectedCollection.isNotEmpty()) {
+                    IndexManagerCard(
+                        indexes = uiState.indexSummaries,
+                        selectedCollection = uiState.selectedCollection,
+                        onCreateIndex = viewModel::createIndex,
+                        onDropIndex = viewModel::dropIndex,
+                        onRefreshIndexes = {
+                            viewModel.loadIndexes(uiState.selectedDatabase, uiState.selectedCollection)
+                        }
+                    )
+                }
+
+                // CRUD Operations Panel (Enhanced with Aggregate & Count)
                 CrudOperationsCard(
                     selectedDb = uiState.selectedDatabase,
                     selectedCollection = uiState.selectedCollection,
                     activeOp = uiState.activeOperation,
                     filterJson = uiState.filterJson,
+                    sortJson = uiState.sortJson,
+                    projectionJson = uiState.projectionJson,
+                    limit = uiState.limit,
+                    skip = uiState.skip,
+                    pipelineJson = uiState.pipelineJson,
                     insertJson = uiState.insertJson,
                     updateJson = uiState.updateJson,
                     isMultiple = uiState.isMultiple,
                     isLoading = uiState.isLoading,
                     onSelectOp = viewModel::onOperationSelected,
                     onFilterChange = viewModel::onFilterChange,
+                    onSortChange = viewModel::onSortChange,
+                    onProjectionChange = viewModel::onProjectionChange,
+                    onLimitChange = viewModel::onLimitChange,
+                    onSkipChange = viewModel::onSkipChange,
+                    onPipelineChange = viewModel::onPipelineChange,
                     onInsertChange = viewModel::onInsertChange,
                     onUpdateChange = viewModel::onUpdateChange,
                     onMultipleToggle = viewModel::onMultipleToggle,
                     onExecute = viewModel::executeOperation
                 )
 
-                // Results Viewer
+                // Results Viewer (Interactive Document Cards with Copy, Edit, Delete)
                 ResultsViewerCard(
                     documents = uiState.queryResult.documents,
                     totalCount = uiState.queryResult.totalCount,
-                    message = uiState.queryResult.message
+                    message = uiState.queryResult.message,
+                    onEditDoc = viewModel::prepareEditDocument,
+                    onDeleteDoc = viewModel::deleteSingleDocument
                 )
 
                 // System Log Console
@@ -233,7 +267,6 @@ private fun DatabaseInspectorCard(
             )
         }
     ) {
-        // Database selector dropdown
         DatabaseDropdown(
             databases = databases,
             selectedDb = selectedDb,
@@ -242,7 +275,6 @@ private fun DatabaseInspectorCard(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // 6 Detailed Metric Tiles
         if (stats != null) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(
@@ -324,9 +356,110 @@ private fun DatabaseDropdown(
 private fun CollectionsExplorerCard(
     collections: List<CollectionSummary>,
     selectedCollection: String,
-    onSelectCollection: (String) -> Unit
+    onSelectCollection: (String) -> Unit,
+    onCreateCollection: (String) -> Unit,
+    onDropCollection: (String) -> Unit
 ) {
-    SkeletonCard(title = "Collections Explorer (${collections.size})") {
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newCollName by remember { mutableStateOf("") }
+    var showDropConfirm by remember { mutableStateOf(false) }
+
+    SkeletonCard(
+        title = "Collections Explorer (${collections.size})",
+        trailingAction = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = if (showCreateDialog) "[- CANCEL]" else "[+ NEW]",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    color = SkeletonTheme.Success,
+                    modifier = Modifier.clickable { showCreateDialog = !showCreateDialog }
+                )
+                if (selectedCollection.isNotEmpty()) {
+                    Text(
+                        text = "[DROP]",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        color = SkeletonTheme.Error,
+                        modifier = Modifier.clickable { showDropConfirm = true }
+                    )
+                }
+            }
+        }
+    ) {
+        // Inline Create Collection Input
+        if (showCreateDialog) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SkeletonTextField(
+                    value = newCollName,
+                    onValueChange = { newCollName = it },
+                    label = "Collection Name",
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                SkeletonButton(
+                    text = "CREATE",
+                    onClick = {
+                        if (newCollName.isNotBlank()) {
+                            onCreateCollection(newCollName)
+                            newCollName = ""
+                            showCreateDialog = false
+                        }
+                    },
+                    variant = ButtonVariant.SUCCESS,
+                    modifier = Modifier.height(48.dp)
+                )
+            }
+        }
+
+        // Inline Drop Confirmation
+        if (showDropConfirm) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1E0A0A), RectangleShape)
+                    .border(1.dp, SkeletonTheme.Error, RectangleShape)
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Drop '$selectedCollection'?",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SkeletonTheme.Error
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "[CONFIRM DROP]",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        color = SkeletonTheme.Error,
+                        modifier = Modifier.clickable {
+                            onDropCollection(selectedCollection)
+                            showDropConfirm = false
+                        }
+                    )
+                    Text(
+                        text = "[CANCEL]",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        color = SkeletonTheme.TextSecondary,
+                        modifier = Modifier.clickable { showDropConfirm = false }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        // Collections Scroll List
         if (collections.isEmpty()) {
             Text(
                 text = "No collections found in this database.",
@@ -376,32 +509,41 @@ private fun CrudOperationsCard(
     selectedCollection: String,
     activeOp: MongoOperation,
     filterJson: String,
+    sortJson: String,
+    projectionJson: String,
+    limit: Int,
+    skip: Int,
+    pipelineJson: String,
     insertJson: String,
     updateJson: String,
     isMultiple: Boolean,
     isLoading: Boolean,
     onSelectOp: (MongoOperation) -> Unit,
     onFilterChange: (String) -> Unit,
+    onSortChange: (String) -> Unit,
+    onProjectionChange: (String) -> Unit,
+    onLimitChange: (Int) -> Unit,
+    onSkipChange: (Int) -> Unit,
+    onPipelineChange: (String) -> Unit,
     onInsertChange: (String) -> Unit,
     onUpdateChange: (String) -> Unit,
     onMultipleToggle: (Boolean) -> Unit,
     onExecute: () -> Unit
 ) {
-    SkeletonCard(title = "CRUD Operations ($selectedDb.$selectedCollection)") {
+    SkeletonCard(title = "Data Operations ($selectedDb.$selectedCollection)") {
         // Operation Tabs
-        Row(
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            MongoOperation.values().forEach { op ->
+            items(MongoOperation.values()) { op ->
                 val isSelected = activeOp == op
                 Box(
                     modifier = Modifier
-                        .weight(1f)
                         .background(if (isSelected) SkeletonTheme.BorderFocused else Color.Transparent, RectangleShape)
                         .border(1.dp, if (isSelected) Color.White else SkeletonTheme.Border, RectangleShape)
                         .clickable { onSelectOp(op) }
-                        .padding(vertical = 6.dp),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -425,6 +567,17 @@ private fun CrudOperationsCard(
                     onValueChange = onFilterChange,
                     label = "Filter Query JSON (e.g. {} or {\"status\": \"active\"})",
                     minLines = 2
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                QueryOptionsCard(
+                    sortJson = sortJson,
+                    projectionJson = projectionJson,
+                    limit = limit,
+                    skip = skip,
+                    onSortChange = onSortChange,
+                    onProjectionChange = onProjectionChange,
+                    onLimitChange = onLimitChange,
+                    onSkipChange = onSkipChange
                 )
             }
             MongoOperation.INSERT -> {
@@ -467,6 +620,24 @@ private fun CrudOperationsCard(
                     Text("Delete Many (warning: removes all matches)", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = SkeletonTheme.Error)
                 }
             }
+            MongoOperation.AGGREGATE -> {
+                SkeletonTextField(
+                    value = pipelineJson,
+                    onValueChange = onPipelineChange,
+                    label = "Aggregation Pipeline Array (JSON)",
+                    placeholder = "[\n  { \"\$match\": {} },\n  { \"\$group\": { \"_id\": \"\$status\", \"count\": { \"\$sum\": 1 } } }\n]",
+                    minLines = 5,
+                    maxLines = 10
+                )
+            }
+            MongoOperation.COUNT -> {
+                SkeletonTextField(
+                    value = filterJson,
+                    onValueChange = onFilterChange,
+                    label = "Filter Query JSON for Document Count",
+                    minLines = 2
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -490,21 +661,41 @@ private fun CrudOperationsCard(
 private fun ResultsViewerCard(
     documents: List<String>,
     totalCount: Long,
-    message: String
+    message: String,
+    onEditDoc: (String) -> Unit,
+    onDeleteDoc: (String) -> Unit
 ) {
+    val context = LocalContext.current
+
     SkeletonCard(
         title = "Query Results (${documents.size} displayed / $totalCount total)",
         trailingAction = {
-            if (message.isNotEmpty()) {
+            if (documents.isNotEmpty()) {
                 Text(
-                    text = message,
+                    text = "[COPY ALL]",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
-                    color = SkeletonTheme.Success
+                    color = SkeletonTheme.Info,
+                    modifier = Modifier.clickable {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val arrayJson = "[\n${documents.joinToString(",\n")}\n]"
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Mongo Query Results", arrayJson))
+                        Toast.makeText(context, "All results copied", Toast.LENGTH_SHORT).show()
+                    }
                 )
             }
         }
     ) {
+        if (message.isNotEmpty()) {
+            Text(
+                text = message,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                color = SkeletonTheme.Success,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+        }
+
         if (documents.isEmpty()) {
             Text(
                 text = "No documents returned.",
@@ -514,22 +705,14 @@ private fun ResultsViewerCard(
                 modifier = Modifier.padding(vertical = 10.dp)
             )
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 documents.forEachIndexed { idx, doc ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFF0C0C0C), RectangleShape)
-                            .border(1.dp, SkeletonTheme.Border, RectangleShape)
-                            .padding(8.dp)
-                    ) {
-                        Text(
-                            text = "[#$idx]\n$doc",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = SkeletonTheme.TextPrimary
-                        )
-                    }
+                    DocumentResultCard(
+                        index = idx,
+                        documentJson = doc,
+                        onEdit = onEditDoc,
+                        onDelete = onDeleteDoc
+                    )
                 }
             }
         }

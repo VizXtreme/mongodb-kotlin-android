@@ -8,6 +8,7 @@ import com.vizx.mongodbclient.data.CollectionSummary
 import com.vizx.mongodbclient.data.ConnectionState
 import com.vizx.mongodbclient.data.ConnectionStorage
 import com.vizx.mongodbclient.data.DatabaseStats
+import com.vizx.mongodbclient.data.IndexSummary
 import com.vizx.mongodbclient.data.LogEntry
 import com.vizx.mongodbclient.data.LogLevel
 import com.vizx.mongodbclient.data.MongoManager
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -37,10 +39,16 @@ data class MongoUiState(
     val selectedCollection: String = "",
     val activeOperation: MongoOperation = MongoOperation.FIND,
     val filterJson: String = "{}",
+    val sortJson: String = "{}",
+    val projectionJson: String = "{}",
+    val limit: Int = 20,
+    val skip: Int = 0,
+    val pipelineJson: String = "[\n  { \"\$limit\": 10 }\n]",
     val insertJson: String = "{\n  \"name\": \"Sample Document\",\n  \"status\": \"active\",\n  \"createdAt\": \"${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}\"\n}",
     val updateJson: String = "{\n  \"status\": \"updated\",\n  \"version\": 2\n}",
     val isMultiple: Boolean = false,
     val queryResult: QueryResult = QueryResult(),
+    val indexSummaries: List<IndexSummary> = emptyList(),
     val isLoading: Boolean = false,
     val isRefreshingStats: Boolean = false,
     val logs: List<LogEntry> = emptyList()
@@ -118,8 +126,9 @@ class MongoViewModel @JvmOverloads constructor(
     }
 
     fun onCollectionSelected(collName: String) {
-        _uiState.update { it.copy(selectedCollection = collName) }
+        _uiState.update { it.copy(selectedCollection = collName, indexSummaries = emptyList()) }
         log("Selected collection: '${_uiState.value.selectedDatabase}.$collName'", LogLevel.INFO)
+        loadIndexes(_uiState.value.selectedDatabase, collName)
     }
 
     fun onOperationSelected(op: MongoOperation) {
@@ -128,6 +137,26 @@ class MongoViewModel @JvmOverloads constructor(
 
     fun onFilterChange(filter: String) {
         _uiState.update { it.copy(filterJson = filter) }
+    }
+
+    fun onSortChange(sort: String) {
+        _uiState.update { it.copy(sortJson = sort) }
+    }
+
+    fun onProjectionChange(proj: String) {
+        _uiState.update { it.copy(projectionJson = proj) }
+    }
+
+    fun onLimitChange(limit: Int) {
+        _uiState.update { it.copy(limit = limit) }
+    }
+
+    fun onSkipChange(skip: Int) {
+        _uiState.update { it.copy(skip = skip) }
+    }
+
+    fun onPipelineChange(pipeline: String) {
+        _uiState.update { it.copy(pipelineJson = pipeline) }
     }
 
     fun onInsertChange(json: String) {
@@ -247,18 +276,156 @@ class MongoViewModel @JvmOverloads constructor(
             val collsRes = mongoManager.getCollectionSummaries(dbName)
             collsRes.onSuccess { colls ->
                 val firstColl = colls.firstOrNull()?.name ?: ""
-                _uiState.update {
-                    it.copy(
+                val chosenColl = if (it.selectedCollection.isEmpty() || colls.none { c -> c.name == it.selectedCollection }) firstColl else it.selectedCollection
+                _uiState.update { state ->
+                    state.copy(
                         collectionSummaries = colls,
-                        selectedCollection = if (it.selectedCollection.isEmpty() || colls.none { c -> c.name == it.selectedCollection }) firstColl else it.selectedCollection,
+                        selectedCollection = chosenColl,
                         isRefreshingStats = false
                     )
                 }
                 log("Loaded ${colls.size} collections for '$dbName'", LogLevel.INFO)
+                if (chosenColl.isNotEmpty()) {
+                    loadIndexes(dbName, chosenColl)
+                }
             }.onFailure { err ->
                 _uiState.update { it.copy(isRefreshingStats = false) }
                 log("Failed to load collections for '$dbName': ${err.message}", LogLevel.ERROR)
             }
+        }
+    }
+
+    fun loadIndexes(dbName: String, collName: String) {
+        if (dbName.isBlank() || collName.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val res = mongoManager.getIndexes(dbName, collName)
+                res.onSuccess { indexes ->
+                    _uiState.update { it.copy(indexSummaries = indexes) }
+                    log("Loaded ${indexes.size} index(es) for '$dbName.$collName'", LogLevel.INFO)
+                }.onFailure { err ->
+                    log("Failed to load indexes: ${err.message}", LogLevel.WARN)
+                }
+            } catch (t: Throwable) {
+                log("Error loading indexes: ${t.message}", LogLevel.WARN)
+            }
+        }
+    }
+
+    fun createCollection(name: String) {
+        val db = _uiState.value.selectedDatabase
+        if (db.isBlank() || name.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val res = mongoManager.createCollection(db, name)
+            res.onSuccess { msg ->
+                log(msg, LogLevel.SUCCESS)
+                loadDatabaseDetails(db)
+                onCollectionSelected(name.trim())
+            }.onFailure { err ->
+                _uiState.update { it.copy(isLoading = false) }
+                log("Create collection failed: ${err.message}", LogLevel.ERROR)
+            }
+        }
+    }
+
+    fun dropCollection(name: String) {
+        val db = _uiState.value.selectedDatabase
+        if (db.isBlank() || name.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val res = mongoManager.dropCollection(db, name)
+            res.onSuccess { msg ->
+                log(msg, LogLevel.SUCCESS)
+                _uiState.update { it.copy(selectedCollection = "", indexSummaries = emptyList(), queryResult = QueryResult()) }
+                loadDatabaseDetails(db)
+            }.onFailure { err ->
+                _uiState.update { it.copy(isLoading = false) }
+                log("Drop collection failed: ${err.message}", LogLevel.ERROR)
+            }
+        }
+    }
+
+    fun createIndex(keys: String, isUnique: Boolean) {
+        val db = _uiState.value.selectedDatabase
+        val coll = _uiState.value.selectedCollection
+        if (db.isBlank() || coll.isBlank() || keys.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val res = mongoManager.createIndex(db, coll, keys, isUnique)
+            res.onSuccess { msg ->
+                log(msg, LogLevel.SUCCESS)
+                _uiState.update { it.copy(isLoading = false) }
+                loadIndexes(db, coll)
+            }.onFailure { err ->
+                _uiState.update { it.copy(isLoading = false) }
+                log("Create index failed: ${err.message}", LogLevel.ERROR)
+            }
+        }
+    }
+
+    fun dropIndex(indexName: String) {
+        val db = _uiState.value.selectedDatabase
+        val coll = _uiState.value.selectedCollection
+        if (db.isBlank() || coll.isBlank() || indexName.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val res = mongoManager.dropIndex(db, coll, indexName)
+            res.onSuccess { msg ->
+                log(msg, LogLevel.SUCCESS)
+                _uiState.update { it.copy(isLoading = false) }
+                loadIndexes(db, coll)
+            }.onFailure { err ->
+                _uiState.update { it.copy(isLoading = false) }
+                log("Drop index failed: ${err.message}", LogLevel.ERROR)
+            }
+        }
+    }
+
+    fun prepareEditDocument(docJson: String) {
+        try {
+            val json = JSONObject(docJson)
+            val idVal = json.opt("_id")
+            val idFilter = if (idVal != null) "{\n  \"_id\": $idVal\n}" else "{}"
+            json.remove("_id")
+            val updateBody = json.toString(2)
+
+            _uiState.update {
+                it.copy(
+                    activeOperation = MongoOperation.UPDATE,
+                    filterJson = idFilter,
+                    updateJson = updateBody,
+                    isMultiple = false
+                )
+            }
+            log("Loaded document into UPDATE editor (matched by _id).", LogLevel.INFO)
+        } catch (e: Throwable) {
+            log("Could not prepare document for edit: ${e.message}", LogLevel.WARN)
+        }
+    }
+
+    fun deleteSingleDocument(docJson: String) {
+        val db = _uiState.value.selectedDatabase
+        val coll = _uiState.value.selectedCollection
+        if (db.isBlank() || coll.isBlank()) return
+
+        try {
+            val json = JSONObject(docJson)
+            val idVal = json.opt("_id")
+            if (idVal == null) {
+                log("Cannot delete document: '_id' field not found.", LogLevel.WARN)
+                return
+            }
+            val filter = "{\"_id\": $idVal}"
+            viewModelScope.launch {
+                _uiState.update { it.copy(isLoading = true) }
+                log("Deleting document with _id: $idVal", LogLevel.INFO)
+                val res = mongoManager.deleteDocument(db, coll, filter, isDeleteMany = false)
+                handleResult("DELETE", res)
+                loadDatabaseDetails(db)
+            }
+        } catch (e: Throwable) {
+            log("Delete failed: ${e.message}", LogLevel.ERROR)
         }
     }
 
@@ -276,15 +443,22 @@ class MongoViewModel @JvmOverloads constructor(
             _uiState.update { it.copy(isLoading = true) }
             when (state.activeOperation) {
                 MongoOperation.FIND -> {
-                    log("Executing FIND query on '$db.$coll' with filter: ${state.filterJson}", LogLevel.INFO)
-                    val res = mongoManager.findDocuments(db, coll, state.filterJson)
+                    log("Executing FIND query on '$db.$coll' (limit: ${state.limit}, skip: ${state.skip})", LogLevel.INFO)
+                    val res = mongoManager.findDocuments(
+                        dbName = db,
+                        collectionName = coll,
+                        filterJson = state.filterJson,
+                        sortJson = state.sortJson,
+                        projectionJson = state.projectionJson,
+                        limit = state.limit,
+                        skip = state.skip
+                    )
                     handleResult("FIND", res)
                 }
                 MongoOperation.INSERT -> {
                     log("Executing INSERT into '$db.$coll'", LogLevel.INFO)
                     val res = mongoManager.insertDocument(db, coll, state.insertJson)
                     handleResult("INSERT", res)
-                    // Refresh collection stats after write
                     loadDatabaseDetails(db)
                 }
                 MongoOperation.UPDATE -> {
@@ -298,6 +472,16 @@ class MongoViewModel @JvmOverloads constructor(
                     val res = mongoManager.deleteDocument(db, coll, state.filterJson, state.isMultiple)
                     handleResult("DELETE", res)
                     loadDatabaseDetails(db)
+                }
+                MongoOperation.AGGREGATE -> {
+                    log("Executing AGGREGATION pipeline on '$db.$coll'", LogLevel.INFO)
+                    val res = mongoManager.aggregateDocuments(db, coll, state.pipelineJson)
+                    handleResult("AGGREGATE", res)
+                }
+                MongoOperation.COUNT -> {
+                    log("Executing COUNT on '$db.$coll' with filter: ${state.filterJson}", LogLevel.INFO)
+                    val res = mongoManager.countDocuments(db, coll, state.filterJson)
+                    handleResult("COUNT", res)
                 }
             }
         }

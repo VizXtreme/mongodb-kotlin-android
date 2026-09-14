@@ -69,19 +69,22 @@ flowchart TD
 
 ---
 
-## Phase 3: Advanced Query & Data Manipulation Engine
-- [ ] **Aggregation Pipeline Builder**:
+## Phase 3: Advanced Query & Data Manipulation Engine (Completed)
+- [x] **Aggregation Pipeline Executor**:
   - Multi-stage pipeline executor supporting `$match`, `$group`, `$project`, `$sort`, `$limit`, `$unwind`, and `$lookup`.
-  - JSON pipeline syntax validator with error highlight.
-- [ ] **Projection & Sorting Controls**:
-  - Sort direction toggles (Ascending `1` / Descending `-1`).
-  - Projection builder to select or exclude specific document fields.
-- [ ] **Index Manager**:
-  - List collection indexes with key definitions, unique flags, and sparse properties.
-  - Create new single-field or compound indexes.
-  - Drop obsolete or unused indexes.
-- [ ] **Data Export & Sharing**:
-  - Export query results to formatted JSON or CSV files via Android Storage Access Framework (SAF).
+  - BSON array/object syntax parsing and live stage latency tracking.
+- [x] **Projection, Sorting, Limit & Skip Controls**:
+  - `QueryOptionsCard` for specifying sort order (e.g. `{"_id": -1}`), field projections (`{"name": 1}`), limit, and skip offset.
+- [x] **Collection Lifecycle Management**:
+  - Inline collection creation (`createCollection`).
+  - Safe collection drop with confirmation (`dropCollection`).
+- [x] **Index Inspector & Manager**:
+  - Real-time index listing with key definitions, index names, and unique constraint badges (`IndexManagerCard`).
+  - Create single-field or compound indexes with unique constraints.
+  - Drop index functionality.
+- [x] **Interactive Document Cards & Data Export**:
+  - Per-document actions in `DocumentResultCard`: instant JSON copy, edit prefill into update tab, and single-document delete by `_id`.
+  - Batch export to clipboard (`[COPY ALL]`) formatted as a clean JSON array.
 
 ---
 
